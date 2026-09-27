@@ -26,6 +26,8 @@ ios/Pods/
 *.pem
 *firebase-adminsdk*.json
 
+lib/config/env.dart
+
 # IDE
 .idea/
 *.iml
