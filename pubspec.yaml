@@ -49,6 +49,7 @@ dependencies:
   flutter_tts: ^4.0.2
   flutter_local_notifications: ^18.0.1
   http: ^1.2.2
+  speech_to_text: ^7.0.0
   
   
 

@@ -39,7 +39,9 @@ class TtsService {
   /// Speaks a hazard alert, e.g. "Caution: pothole reported 40 meters
   /// ahead." [distanceMeters] is rounded to the nearest 10m — GPS isn't
   /// precise enough to justify a more exact figure, and a round number
-  /// is easier to parse by ear anyway.
+  /// is easier to parse by ear anyway. Kept alongside [speakThen] (rather
+  /// than replaced by it) since not every caller needs a follow-up
+  /// action after the speech finishes.
   static Future<void> speakHazardAlert({
     required String hazardLabel,
     required double distanceMeters,
@@ -53,6 +55,29 @@ class TtsService {
       await _tts.speak('Caution: $hazardLabel reported $roundedDistance meters ahead.');
     } catch (e) {
       if (kDebugMode) print('TtsService.speakHazardAlert failed: $e');
+    }
+  }
+
+  /// Speaks [message], then calls [onDone] once the speech actually
+  /// finishes — used to chain straight into voice-command listening
+  /// (see VoiceCommandService) without the microphone racing to open
+  /// while the phone is still talking, which would just have it hear
+  /// itself. Falls back to calling [onDone] immediately if TTS itself
+  /// isn't available, so a broken speech engine never blocks the
+  /// voice-command flow entirely — the on-screen buttons still work.
+  static Future<void> speakThen(String message, VoidCallback onDone) async {
+    await _ensureInitialized();
+    if (!_initialized) {
+      onDone();
+      return;
+    }
+    try {
+      await _tts.stop();
+      _tts.setCompletionHandler(onDone);
+      await _tts.speak(message);
+    } catch (e) {
+      if (kDebugMode) print('TtsService.speakThen failed: $e');
+      onDone();
     }
   }
 

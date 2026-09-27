@@ -14,6 +14,7 @@ import '../services/hazard_service.dart';
 import '../services/community_impact_service.dart';
 import '../services/notification_service.dart';
 import '../services/tts_service.dart';
+import '../services/voice_command_service.dart';
 import '../widgets/report_hazard_sheet.dart';
 import 'create_challenge_screen.dart';
 
@@ -63,7 +64,8 @@ class _RecordScreenState extends State<RecordScreen> {
   bool _isStarting = false; // closes the reentrancy window in _start() below
   bool _isLocked = false;
   bool _isSaving = false;
-  bool _isPaused = false; // duration timer pauses while the exit-confirm dialog is open
+  bool _isPaused =
+      false; // duration timer pauses while the exit-confirm dialog is open
 
   double _distanceMeters = 0;
   Duration _elapsed = Duration.zero;
@@ -123,20 +125,28 @@ class _RecordScreenState extends State<RecordScreen> {
 
   StreamSubscription<Position>? _preStartMotionSub;
   DateTime? _movingSince; // pre-start: how long sustained movement has lasted
-  DateTime? _belowThresholdSince; // pre-start: how long speed has been under threshold, for the reset grace period below
+  DateTime?
+  _belowThresholdSince; // pre-start: how long speed has been under threshold, for the reset grace period below
 
-  DateTime? _stillSince; // during recording: how long sustained stillness has lasted
+  DateTime?
+  _stillSince; // during recording: how long sustained stillness has lasted
   bool _checkInDialogOpen = false;
-  String? _pendingStopReason; // set when the user actively confirms they're stopping
+  String?
+  _pendingStopReason; // set when the user actively confirms they're stopping
   BuildContext? _checkInDialogContext;
   Timer? _autoStopTimer;
-  final ValueNotifier<int> _autoStopSecondsLeft = ValueNotifier<int>(_autoStopAfterSeconds);
+  final ValueNotifier<int> _autoStopSecondsLeft = ValueNotifier<int>(
+    _autoStopAfterSeconds,
+  );
 
   bool get _isCycling => widget.activityType == ActivityType.ride;
 
   // Computed once — the reference route itself never changes during a
   // recording session, so there's no reason to remap it on every frame.
-  late final List<LatLng> _referenceLatLngs = (widget.referenceRoute ?? const []).map((p) => LatLng(p.lat, p.lng)).toList();
+  late final List<LatLng> _referenceLatLngs =
+      (widget.referenceRoute ?? const [])
+          .map((p) => LatLng(p.lat, p.lng))
+          .toList();
   bool get _isRetracing => _referenceLatLngs.length > 1;
 
   @override
@@ -190,7 +200,11 @@ class _RecordScreenState extends State<RecordScreen> {
     return true;
   }
 
-  void _showSnackWithAction(String message, {required String actionLabel, required Future<bool> Function() onAction}) {
+  void _showSnackWithAction(
+    String message, {
+    required String actionLabel,
+    required Future<bool> Function() onAction,
+  }) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -203,7 +217,9 @@ class _RecordScreenState extends State<RecordScreen> {
 
   void _showSnack(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   /// Watches for sustained movement while on the pre-start screen and
@@ -226,67 +242,79 @@ class _RecordScreenState extends State<RecordScreen> {
     // noisy readings that were prematurely resetting the sustained-
     // movement timer below (very noticeable at motorbike speeds, where
     // a single bad fix reads as an implausible speed drop).
-    const settings = LocationSettings(accuracy: LocationAccuracy.best, distanceFilter: 0);
+    const settings = LocationSettings(
+      accuracy: LocationAccuracy.best,
+      distanceFilter: 0,
+    );
     _preStartMotionSub?.cancel();
-    _preStartMotionSub = Geolocator.getPositionStream(locationSettings: settings).listen((pos) {
-      if (_isRecording) return;
+    _preStartMotionSub =
+        Geolocator.getPositionStream(locationSettings: settings).listen((pos) {
+          if (_isRecording) return;
 
-      // Same accuracy filter the live recorder uses — an inaccurate fix
-      // can produce a wildly wrong instantaneous speed and reset the
-      // sustained-movement timer for no real reason.
-      const maxAcceptableAccuracyMeters = 25.0;
-      if (pos.accuracy > maxAcceptableAccuracyMeters) return;
+          // Same accuracy filter the live recorder uses — an inaccurate fix
+          // can produce a wildly wrong instantaneous speed and reset the
+          // sustained-movement timer for no real reason.
+          const maxAcceptableAccuracyMeters = 25.0;
+          if (pos.accuracy > maxAcceptableAccuracyMeters) return;
 
-      final latLng = LatLng(pos.latitude, pos.longitude);
-      setState(() => _currentLatLng = latLng);
+          final latLng = LatLng(pos.latitude, pos.longitude);
+          setState(() => _currentLatLng = latLng);
 
-      if (!_hasCenteredMap) {
-        _hasCenteredMap = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) => _mapController.move(latLng, 16));
-      }
+          if (!_hasCenteredMap) {
+            _hasCenteredMap = true;
+            WidgetsBinding.instance.addPostFrameCallback(
+              (_) => _mapController.move(latLng, 16),
+            );
+          }
 
-      // Device-reported speed (pos.speed) is often unreliable — zero or
-      // erratic on a weak signal, slow starts, or some hardware entirely.
-      // Fall back to computing speed from distance/time between the last
-      // two fixes (the same technique the live recorder already uses),
-      // and trust whichever signal indicates more movement.
-      double speedKmh = pos.speed >= 0 ? pos.speed * 3.6 : 0;
+          // Device-reported speed (pos.speed) is often unreliable — zero or
+          // erratic on a weak signal, slow starts, or some hardware entirely.
+          // Fall back to computing speed from distance/time between the last
+          // two fixes (the same technique the live recorder already uses),
+          // and trust whichever signal indicates more movement.
+          double speedKmh = pos.speed >= 0 ? pos.speed * 3.6 : 0;
 
-      if (_lastPreStartPosition != null) {
-        final segment = Geolocator.distanceBetween(
-          _lastPreStartPosition!.latitude,
-          _lastPreStartPosition!.longitude,
-          pos.latitude,
-          pos.longitude,
-        );
-        final secondsSince = DateTime.now().difference(_lastPreStartFixTime ?? DateTime.now()).inMilliseconds / 1000;
-        if (secondsSince > 0) {
-          final computedSpeedKmh = (segment / secondsSince) * 3.6;
-          if (computedSpeedKmh > speedKmh) speedKmh = computedSpeedKmh;
-        }
-      }
-      _lastPreStartPosition = pos;
-      _lastPreStartFixTime = DateTime.now();
+          if (_lastPreStartPosition != null) {
+            final segment = Geolocator.distanceBetween(
+              _lastPreStartPosition!.latitude,
+              _lastPreStartPosition!.longitude,
+              pos.latitude,
+              pos.longitude,
+            );
+            final secondsSince =
+                DateTime.now()
+                    .difference(_lastPreStartFixTime ?? DateTime.now())
+                    .inMilliseconds /
+                1000;
+            if (secondsSince > 0) {
+              final computedSpeedKmh = (segment / secondsSince) * 3.6;
+              if (computedSpeedKmh > speedKmh) speedKmh = computedSpeedKmh;
+            }
+          }
+          _lastPreStartPosition = pos;
+          _lastPreStartFixTime = DateTime.now();
 
-      if (speedKmh >= _startThresholdKmh) {
-        _belowThresholdSince = null;
-        _movingSince ??= DateTime.now();
-        if (DateTime.now().difference(_movingSince!) >= _startSustainDuration) {
-          _start();
-        }
-      } else {
-        // Grace period before actually resetting: a single noisy or
-        // momentarily-slow fix (common at any real speed — a bump, a
-        // brief GPS glitch, a fix computed over an oddly short time
-        // gap) shouldn't wipe out several seconds of already-confirmed
-        // movement. Only a genuinely sustained drop (700ms+ below
-        // threshold) resets the sustained-movement clock.
-        _belowThresholdSince ??= DateTime.now();
-        if (DateTime.now().difference(_belowThresholdSince!) >= const Duration(milliseconds: 700)) {
-          _movingSince = null;
-        }
-      }
-    });
+          if (speedKmh >= _startThresholdKmh) {
+            _belowThresholdSince = null;
+            _movingSince ??= DateTime.now();
+            if (DateTime.now().difference(_movingSince!) >=
+                _startSustainDuration) {
+              _start();
+            }
+          } else {
+            // Grace period before actually resetting: a single noisy or
+            // momentarily-slow fix (common at any real speed — a bump, a
+            // brief GPS glitch, a fix computed over an oddly short time
+            // gap) shouldn't wipe out several seconds of already-confirmed
+            // movement. Only a genuinely sustained drop (700ms+ below
+            // threshold) resets the sustained-movement clock.
+            _belowThresholdSince ??= DateTime.now();
+            if (DateTime.now().difference(_belowThresholdSince!) >=
+                const Duration(milliseconds: 700)) {
+              _movingSince = null;
+            }
+          }
+        });
   }
 
   Future<void> _start() async {
@@ -356,7 +384,9 @@ class _RecordScreenState extends State<RecordScreen> {
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!_isPaused) setState(() => _elapsed += const Duration(seconds: 1));
 
-      final secondsSinceFix = DateTime.now().difference(_lastFixTime ?? DateTime.now()).inSeconds;
+      final secondsSinceFix = DateTime.now()
+          .difference(_lastFixTime ?? DateTime.now())
+          .inSeconds;
 
       // Safety net for the 90s stillness check-in — keep feeding it zero
       // speed once fixes have been missing for a couple of seconds. This
@@ -384,73 +414,90 @@ class _RecordScreenState extends State<RecordScreen> {
     // nonzero value here means the stream goes completely silent once
     // you stop moving that many meters between updates, which is why
     // speed wasn't reacting and the stillness dialog wasn't firing.
-    const settings = LocationSettings(accuracy: LocationAccuracy.best, distanceFilter: 0);
+    const settings = LocationSettings(
+      accuracy: LocationAccuracy.best,
+      distanceFilter: 0,
+    );
 
-    _positionSub = Geolocator.getPositionStream(locationSettings: settings).listen((pos) {
-      const maxAcceptableAccuracyMeters = 20.0;
-      if (pos.accuracy > maxAcceptableAccuracyMeters) return;
+    _positionSub = Geolocator.getPositionStream(locationSettings: settings)
+        .listen((pos) {
+          const maxAcceptableAccuracyMeters = 20.0;
+          if (pos.accuracy > maxAcceptableAccuracyMeters) return;
 
-      final latLng = LatLng(pos.latitude, pos.longitude);
-      _route.add(GpsPoint(lat: pos.latitude, lng: pos.longitude, timestamp: DateTime.now()));
+          final latLng = LatLng(pos.latitude, pos.longitude);
+          _route.add(
+            GpsPoint(
+              lat: pos.latitude,
+              lng: pos.longitude,
+              timestamp: DateTime.now(),
+            ),
+          );
 
-      // Compute everything first, WITHOUT setState — this fires on
-      // every GPS fix (potentially several times a second), and each
-      // setState() call triggers a full rebuild of the live map view
-      // (polylines, hazard markers, clusters). Three separate setState
-      // calls per fix — as this used to have — means up to 3x the
-      // rebuild work per tick for no benefit, since they all land in
-      // the same frame anyway. One setState at the end batches it into
-      // a single rebuild instead.
-      double? newDistanceMeters;
-      LatLng? newRoutePoint;
-      double newSpeedKmh = _currentSpeedKmh;
+          // Compute everything first, WITHOUT setState — this fires on
+          // every GPS fix (potentially several times a second), and each
+          // setState() call triggers a full rebuild of the live map view
+          // (polylines, hazard markers, clusters). Three separate setState
+          // calls per fix — as this used to have — means up to 3x the
+          // rebuild work per tick for no benefit, since they all land in
+          // the same frame anyway. One setState at the end batches it into
+          // a single rebuild instead.
+          double? newDistanceMeters;
+          LatLng? newRoutePoint;
+          double newSpeedKmh = _currentSpeedKmh;
 
-      if (_lastPosition != null) {
-        final segment = Geolocator.distanceBetween(
-          _lastPosition!.latitude,
-          _lastPosition!.longitude,
-          pos.latitude,
-          pos.longitude,
-        );
+          if (_lastPosition != null) {
+            final segment = Geolocator.distanceBetween(
+              _lastPosition!.latitude,
+              _lastPosition!.longitude,
+              pos.latitude,
+              pos.longitude,
+            );
 
-        // Milliseconds, not whole seconds — fixes can arrive faster than
-        // once a second, and truncating to inSeconds could floor a
-        // sub-second gap to 0 and skip the speed calc entirely.
-        final secondsSinceLast = DateTime.now().difference(_lastFixTime ?? DateTime.now()).inMilliseconds / 1000;
-        final impliedSpeedKmh = secondsSinceLast > 0 ? (segment / secondsSinceLast) * 3.6 : 0;
-        final maxPlausibleSpeedKmh = widget.activityType == ActivityType.ride ? 70.0 : 45.0;
+            // Milliseconds, not whole seconds — fixes can arrive faster than
+            // once a second, and truncating to inSeconds could floor a
+            // sub-second gap to 0 and skip the speed calc entirely.
+            final secondsSinceLast =
+                DateTime.now()
+                    .difference(_lastFixTime ?? DateTime.now())
+                    .inMilliseconds /
+                1000;
+            final impliedSpeedKmh = secondsSinceLast > 0
+                ? (segment / secondsSinceLast) * 3.6
+                : 0;
+            final maxPlausibleSpeedKmh =
+                widget.activityType == ActivityType.ride ? 70.0 : 45.0;
 
-        // Feed every fix into stillness tracking (#13/#14), even ones too
-        // small to count as real movement — that's exactly the signal
-        // that indicates the user has stopped.
-        _trackStillness(impliedSpeedKmh.toDouble());
+            // Feed every fix into stillness tracking (#13/#14), even ones too
+            // small to count as real movement — that's exactly the signal
+            // that indicates the user has stopped.
+            _trackStillness(impliedSpeedKmh.toDouble());
 
-        if (segment > 2 && impliedSpeedKmh < maxPlausibleSpeedKmh) {
-          newDistanceMeters = _distanceMeters + segment;
-          newRoutePoint = latLng;
-          // Light smoothing (70% previous / 30% new reading) so live
-          // speed reacts quickly to real pace changes but doesn't jump
-          // around on normal GPS jitter between individual fixes.
-          newSpeedKmh = (_currentSpeedKmh * 0.7) + (impliedSpeedKmh * 0.3);
-        } else if (impliedSpeedKmh < 1) {
-          // Genuinely stopped (not just a filtered-out noisy fix) —
-          // let the live speed actually reach zero instead of hovering
-          // just above it forever from the smoothing alone.
-          newSpeedKmh = 0.0;
-        }
-      }
-      _lastPosition = pos;
-      _lastFixTime = DateTime.now();
+            if (segment > 2 && impliedSpeedKmh < maxPlausibleSpeedKmh) {
+              newDistanceMeters = _distanceMeters + segment;
+              newRoutePoint = latLng;
+              // Light smoothing (70% previous / 30% new reading) so live
+              // speed reacts quickly to real pace changes but doesn't jump
+              // around on normal GPS jitter between individual fixes.
+              newSpeedKmh = (_currentSpeedKmh * 0.7) + (impliedSpeedKmh * 0.3);
+            } else if (impliedSpeedKmh < 1) {
+              // Genuinely stopped (not just a filtered-out noisy fix) —
+              // let the live speed actually reach zero instead of hovering
+              // just above it forever from the smoothing alone.
+              newSpeedKmh = 0.0;
+            }
+          }
+          _lastPosition = pos;
+          _lastFixTime = DateTime.now();
 
-      setState(() {
-        if (newDistanceMeters != null) _distanceMeters = newDistanceMeters;
-        if (newRoutePoint != null) _routePoints.add(newRoutePoint);
-        _currentSpeedKmh = newSpeedKmh;
-        _currentLatLng = latLng;
-      });
-      _mapController.move(latLng, _mapController.camera.zoom);
-      _checkHazardProximity(latLng);
-    });
+          setState(() {
+            if (newDistanceMeters != null) _distanceMeters = newDistanceMeters;
+            if (newRoutePoint != null) _routePoints.add(newRoutePoint);
+            _currentSpeedKmh = newSpeedKmh;
+            _currentLatLng = latLng;
+          });
+          _mapController.move(latLng, _mapController.camera.zoom);
+          _checkHazardProximity(latLng);
+        });
   }
 
   /// Fetches every hazard other users have shared, keeps only ones within
@@ -473,7 +520,10 @@ class _RecordScreenState extends State<RecordScreen> {
     }).toList();
 
     setState(() {
-      _communityClusters = HazardCluster.cluster(nearby, thresholdMeters: HazardClusterConfig.duplicateThresholdMeters);
+      _communityClusters = HazardCluster.cluster(
+        nearby,
+        thresholdMeters: HazardClusterConfig.duplicateThresholdMeters,
+      );
     });
   }
 
@@ -495,9 +545,14 @@ class _RecordScreenState extends State<RecordScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xff141414),
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       isScrollControlled: true,
-      builder: (context) => _LiveClusterDetailSheet(cluster: cluster, relativeTimeLabel: _relativeTimeLabel),
+      builder: (context) => _LiveClusterDetailSheet(
+        cluster: cluster,
+        relativeTimeLabel: _relativeTimeLabel,
+      ),
     );
   }
 
@@ -508,8 +563,10 @@ class _RecordScreenState extends State<RecordScreen> {
   /// tap the pin themselves). Only one prompt is ever shown at a time,
   /// and each hazard is only prompted once per recording session.
   void _checkHazardProximity(LatLng current) {
-    if (_proximityPrompt != null) return; // a prompt is already up — don't stack another
-    if (_pendingUndo != null) return; // don't collide with the just-reported-hazard banner
+    if (_proximityPrompt != null)
+      return; // a prompt is already up — don't stack another
+    if (_pendingUndo != null)
+      return; // don't collide with the just-reported-hazard banner
 
     for (final cluster in _communityClusters) {
       final distance = Geolocator.distanceBetween(
@@ -522,9 +579,15 @@ class _RecordScreenState extends State<RecordScreen> {
 
       // Most recent report in the cluster — matches what the manual
       // sheet shows first, and is the single report this prompt acts on.
-      final sorted = [...cluster.reports]..sort((a, b) => b.reportedAt.compareTo(a.reportedAt));
-      final candidate = sorted.firstWhere((r) => r.id != null, orElse: () => sorted.first);
-      if (candidate.id == null || _sessionPromptedHazardIds.contains(candidate.id)) continue;
+      final sorted = [...cluster.reports]
+        ..sort((a, b) => b.reportedAt.compareTo(a.reportedAt));
+      final candidate = sorted.firstWhere(
+        (r) => r.id != null,
+        orElse: () => sorted.first,
+      );
+      if (candidate.id == null ||
+          _sessionPromptedHazardIds.contains(candidate.id))
+        continue;
 
       setState(() {
         _sessionPromptedHazardIds.add(candidate.id!);
@@ -534,7 +597,14 @@ class _RecordScreenState extends State<RecordScreen> {
       // as the stillness alert above — the banner only renders while
       // this screen is on top and visible.
       NotificationService.showHazardNearby(candidate.type.label.toLowerCase());
-      TtsService.speakHazardAlert(hazardLabel: candidate.type.label.toLowerCase(), distanceMeters: distance);
+      final roundedDistance = (distance / 10).round() * 10;
+      TtsService.speakThen(
+        'Caution: ${candidate.type.label.toLowerCase()} reported $roundedDistance meters ahead. Is it still here? Say yes or no.',
+        () => VoiceCommandService.listenForYesNo(
+          onYes: () => _respondToProximityPrompt(stillHere: true),
+          onNo: () => _respondToProximityPrompt(stillHere: false),
+        ),
+      );
       return; // one at a time
     }
   }
@@ -544,7 +614,9 @@ class _RecordScreenState extends State<RecordScreen> {
     if (report?.id == null || _proximityBusy) return;
 
     setState(() => _proximityBusy = true);
-    final success = stillHere ? await CommunityImpactService.verifyStillHere(report!.id!) : await HazardService.confirmClear(report!.id!);
+    final success = stillHere
+        ? await CommunityImpactService.verifyStillHere(report!.id!)
+        : await HazardService.confirmClear(report!.id!);
     if (!mounted) return;
 
     setState(() {
@@ -554,9 +626,15 @@ class _RecordScreenState extends State<RecordScreen> {
     NotificationService.cancelHazardAlert();
 
     if (!success) {
-      _showSnack("Couldn't record that, You may be the original reporter, or already confirmed this one.");
+      _showSnack(
+        "Couldn't record that, You may be the original reporter, or already confirmed this one.",
+      );
     } else {
-      _showSnack(stillHere ? 'Thanks!, This helps keep reports trustworthy.' : 'Thanks for helping keep the map accurate.');
+      _showSnack(
+        stillHere
+            ? 'Thanks!, This helps keep reports trustworthy.'
+            : 'Thanks for helping keep the map accurate.',
+      );
     }
   }
 
@@ -622,7 +700,9 @@ class _RecordScreenState extends State<RecordScreen> {
       if (_autoStopSecondsLeft.value <= 0) {
         timer.cancel();
         if (_checkInDialogContext != null) {
-          Navigator.of(_checkInDialogContext!).pop(true); // no response -> auto-stop
+          Navigator.of(
+            _checkInDialogContext!,
+          ).pop(true); // no response -> auto-stop
         }
       }
     });
@@ -765,7 +845,10 @@ class _RecordScreenState extends State<RecordScreen> {
       // completion modal can still show the route and offer to share
       // this session's hazard reports.
       final routeSnapshot = List<LatLng>.from(_routePoints);
-      final hazardIdsSnapshot = _hazards.where((h) => h.id != null).map((h) => h.id!).toList();
+      final hazardIdsSnapshot = _hazards
+          .where((h) => h.id != null)
+          .map((h) => h.id!)
+          .toList();
 
       // Link (not yet share) these hazards to the saved activity, so
       // they're associated with it for reference even before sharing.
@@ -860,11 +943,19 @@ class _RecordScreenState extends State<RecordScreen> {
     }
   }
 
-  Future<void> _showCompletionModal(Activity activity, List<LatLng> route, List<String> hazardIds) async {
+  Future<void> _showCompletionModal(
+    Activity activity,
+    List<LatLng> route,
+    List<String> hazardIds,
+  ) async {
     await showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => _CompletionModal(activity: activity, route: route, hazardIds: hazardIds),
+      builder: (dialogContext) => _CompletionModal(
+        activity: activity,
+        route: route,
+        hazardIds: hazardIds,
+      ),
     );
   }
 
@@ -911,26 +1002,39 @@ class _RecordScreenState extends State<RecordScreen> {
                   backgroundColor: Colors.transparent,
                   elevation: 0,
                   automaticallyImplyLeading: false,
-                  title: Text(_isCycling ? 'Cycling' : 'Running', style: const TextStyle(color: Colors.white)),
+                  title: Text(
+                    _isCycling ? 'Cycling' : 'Running',
+                    style: const TextStyle(color: Colors.white),
+                  ),
                   centerTitle: true,
                 ),
                 const SizedBox(height: 4),
                 // Subtype was already chosen on SubtypeSelectionScreen
                 // (see widget.subtype) — just shown here for confirmation,
                 // not re-editable on this screen.
-                Text(widget.subtype, style: TextStyle(color: Colors.grey.shade400, fontSize: 14)),
+                Text(
+                  widget.subtype,
+                  style: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+                ),
                 if (_isRetracing) ...[
                   const SizedBox(height: 6),
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.near_me, color: Colors.greenAccent, size: 14),
+                      const Icon(
+                        Icons.near_me,
+                        color: Colors.greenAccent,
+                        size: 14,
+                      ),
                       const SizedBox(width: 6),
                       Flexible(
                         child: Text(
                           'Retracing ${widget.referenceRouteLabel ?? "a shared route"}',
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Colors.greenAccent, fontSize: 13),
+                          style: const TextStyle(
+                            color: Colors.greenAccent,
+                            fontSize: 13,
+                          ),
                         ),
                       ),
                     ],
@@ -951,7 +1055,11 @@ class _RecordScreenState extends State<RecordScreen> {
                       shape: BoxShape.circle,
                       color: Colors.blue.withValues(alpha: .08),
                     ),
-                    child: Icon(_isCycling ? Icons.pedal_bike : Icons.directions_run, color: Colors.blue, size: 72),
+                    child: Icon(
+                      _isCycling ? Icons.pedal_bike : Icons.directions_run,
+                      color: Colors.blue,
+                      size: 72,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 20),
@@ -962,12 +1070,18 @@ class _RecordScreenState extends State<RecordScreen> {
                     SizedBox(
                       width: 14,
                       height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blue.shade200),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.blue.shade200,
+                      ),
                     ),
                     const SizedBox(width: 10),
                     Text(
                       'Detecting movement to start automatically…',
-                      style: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+                      style: TextStyle(
+                        color: Colors.grey.shade400,
+                        fontSize: 14,
+                      ),
                       textAlign: TextAlign.center,
                     ),
                   ],
@@ -980,14 +1094,24 @@ class _RecordScreenState extends State<RecordScreen> {
                     // there's nothing to confirm/lose — a direct jump
                     // to Home is fine (matches the same '/home' route
                     // other screens use to get back to the root tab).
-                    onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false),
+                    onPressed: () => Navigator.of(
+                      context,
+                    ).pushNamedAndRemoveUntil('/home', (route) => false),
                     icon: const Icon(Icons.close, size: 22),
-                    label: const Text('Cancel Record', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
+                    label: const Text(
+                      'Cancel Record',
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 18),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
                     ),
                   ),
                 ),
@@ -1003,8 +1127,12 @@ class _RecordScreenState extends State<RecordScreen> {
 
   Widget _buildLiveView() {
     final km = _distanceMeters / 1000;
-    final avgSpeed = _elapsed.inSeconds > 0 ? km / (_elapsed.inSeconds / 3600) : 0.0;
-    final current = _routePoints.isNotEmpty ? _routePoints.last : const LatLng(0, 0);
+    final avgSpeed = _elapsed.inSeconds > 0
+        ? km / (_elapsed.inSeconds / 3600)
+        : 0.0;
+    final current = _routePoints.isNotEmpty
+        ? _routePoints.last
+        : const LatLng(0, 0);
 
     return Column(
       children: [
@@ -1016,7 +1144,8 @@ class _RecordScreenState extends State<RecordScreen> {
                 options: MapOptions(initialCenter: current, initialZoom: 16),
                 children: [
                   TileLayer(
-                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    urlTemplate:
+                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                     userAgentPackageName: 'com.vitrax.app',
                   ),
                   // Reference trail (the original sharer's exact path) —
@@ -1031,7 +1160,11 @@ class _RecordScreenState extends State<RecordScreen> {
                       // flutter_map version, since dashed-line support
                       // varies across releases.
                       polylines: [
-                        Polyline(points: _referenceLatLngs, color: Colors.greenAccent.withValues(alpha: .85), strokeWidth: 5),
+                        Polyline(
+                          points: _referenceLatLngs,
+                          color: Colors.greenAccent.withValues(alpha: .85),
+                          strokeWidth: 5,
+                        ),
                       ],
                     ),
                   if (_isRetracing)
@@ -1041,22 +1174,42 @@ class _RecordScreenState extends State<RecordScreen> {
                           point: _referenceLatLngs.first,
                           width: 22,
                           height: 22,
-                          child: Container(decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.greenAccent, border: Border.all(color: Colors.white, width: 2))),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.greenAccent,
+                              border: Border.all(color: Colors.white, width: 2),
+                            ),
+                          ),
                         ),
                         Marker(
                           point: _referenceLatLngs.last,
                           width: 22,
                           height: 22,
                           child: Container(
-                            decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.greenAccent, border: Border.all(color: Colors.white, width: 2)),
-                            child: const Icon(Icons.flag, color: Colors.black, size: 12),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.greenAccent,
+                              border: Border.all(color: Colors.white, width: 2),
+                            ),
+                            child: const Icon(
+                              Icons.flag,
+                              color: Colors.black,
+                              size: 12,
+                            ),
                           ),
                         ),
                       ],
                     ),
                   if (_routePoints.length > 1)
                     PolylineLayer(
-                      polylines: [Polyline(points: _routePoints, color: Colors.blue, strokeWidth: 5)],
+                      polylines: [
+                        Polyline(
+                          points: _routePoints,
+                          color: Colors.blue,
+                          strokeWidth: 5,
+                        ),
+                      ],
                     ),
 
                   // ---- Community hazard cluster radius circles ----
@@ -1104,7 +1257,11 @@ class _RecordScreenState extends State<RecordScreen> {
                               color: h.type.color,
                               border: Border.all(color: Colors.white, width: 2),
                             ),
-                            child: Icon(h.type.icon, color: Colors.white, size: 18),
+                            child: Icon(
+                              h.type.icon,
+                              color: Colors.white,
+                              size: 18,
+                            ),
                           ),
                         ),
                       ),
@@ -1126,24 +1283,41 @@ class _RecordScreenState extends State<RecordScreen> {
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
                                     color: c.type.color,
-                                    border: Border.all(color: Colors.white, width: 2),
+                                    border: Border.all(
+                                      color: Colors.white,
+                                      width: 2,
+                                    ),
                                   ),
-                                  child: Icon(c.type.icon, color: Colors.white, size: 20),
+                                  child: Icon(
+                                    c.type.icon,
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
                                 ),
                                 if (c.count > 1)
                                   Positioned(
                                     right: -2,
                                     top: -2,
                                     child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 5,
+                                        vertical: 2,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: Colors.black,
                                         borderRadius: BorderRadius.circular(10),
-                                        border: Border.all(color: Colors.white, width: 1),
+                                        border: Border.all(
+                                          color: Colors.white,
+                                          width: 1,
+                                        ),
                                       ),
                                       child: Text(
                                         '${c.count}',
-                                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -1160,13 +1334,26 @@ class _RecordScreenState extends State<RecordScreen> {
                 top: 12,
                 left: 16,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(color: Colors.black.withValues(alpha: .7), borderRadius: BorderRadius.circular(24)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: .7),
+                    borderRadius: BorderRadius.circular(24),
+                  ),
                   child: const Row(
                     children: [
                       Icon(Icons.circle, color: Colors.red, size: 10),
                       SizedBox(width: 6),
-                      Text('LIVE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                      Text(
+                        'LIVE',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1176,7 +1363,14 @@ class _RecordScreenState extends State<RecordScreen> {
                 left: 0,
                 right: 0,
                 child: Center(
-                  child: Text('GPS Tracking', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                  child: Text(
+                    'GPS Tracking',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
               ),
               if (_isRetracing)
@@ -1186,14 +1380,24 @@ class _RecordScreenState extends State<RecordScreen> {
                   right: 60,
                   child: Center(
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(color: Colors.black.withValues(alpha: .7), borderRadius: BorderRadius.circular(20)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: .7),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
                       child: Text(
                         'Retracing ${widget.referenceRouteLabel ?? "a shared route"}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.greenAccent, fontSize: 11, fontWeight: FontWeight.w600),
+                        style: const TextStyle(
+                          color: Colors.greenAccent,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ),
@@ -1203,17 +1407,47 @@ class _RecordScreenState extends State<RecordScreen> {
                 right: 16,
                 child: Container(
                   width: 150,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  decoration: BoxDecoration(color: Colors.black.withValues(alpha: .8), borderRadius: BorderRadius.circular(16)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: .8),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
                   child: Column(
                     children: [
-                      _StatRow(icon: Icons.map_outlined, iconColor: Colors.blue, value: km.toStringAsFixed(2), unit: 'km', label: 'DISTANCE'),
+                      _StatRow(
+                        icon: Icons.map_outlined,
+                        iconColor: Colors.blue,
+                        value: km.toStringAsFixed(2),
+                        unit: 'km',
+                        label: 'DISTANCE',
+                      ),
                       const Divider(color: Colors.white12, height: 18),
-                      _StatRow(icon: Icons.access_time, iconColor: Colors.greenAccent, value: _formatDuration(_elapsed), unit: '', label: 'DURATION'),
+                      _StatRow(
+                        icon: Icons.access_time,
+                        iconColor: Colors.greenAccent,
+                        value: _formatDuration(_elapsed),
+                        unit: '',
+                        label: 'DURATION',
+                      ),
                       const Divider(color: Colors.white12, height: 18),
-                      _StatRow(icon: Icons.speed, iconColor: Colors.lightBlueAccent, value: _currentSpeedKmh.toStringAsFixed(1), unit: 'km/h', label: 'SPEED'),
+                      _StatRow(
+                        icon: Icons.speed,
+                        iconColor: Colors.lightBlueAccent,
+                        value: _currentSpeedKmh.toStringAsFixed(1),
+                        unit: 'km/h',
+                        label: 'SPEED',
+                      ),
                       const Divider(color: Colors.white12, height: 18),
-                      _StatRow(icon: Icons.bolt, iconColor: Colors.amber, value: avgSpeed.toStringAsFixed(1), unit: 'km/h', label: 'AVG. SPEED'),
+                      _StatRow(
+                        icon: Icons.bolt,
+                        iconColor: Colors.amber,
+                        value: avgSpeed.toStringAsFixed(1),
+                        unit: 'km/h',
+                        label: 'AVG. SPEED',
+                      ),
                     ],
                   ),
                 ),
@@ -1227,7 +1461,11 @@ class _RecordScreenState extends State<RecordScreen> {
                   child: Container(
                     width: 52,
                     height: 52,
-                    decoration: BoxDecoration(color: Colors.black.withValues(alpha: .8), shape: BoxShape.circle, border: Border.all(color: Colors.white24)),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: .8),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white24),
+                    ),
                     child: const Icon(Icons.my_location, color: Colors.white),
                   ),
                 ),
@@ -1238,16 +1476,38 @@ class _RecordScreenState extends State<RecordScreen> {
                   right: 16,
                   bottom: 190,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(color: const Color(0xff141414), borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.white10)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xff141414),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.white10),
+                    ),
                     child: Row(
                       children: [
-                        const Icon(Icons.check_circle, color: Colors.green, size: 20),
+                        const Icon(
+                          Icons.check_circle,
+                          color: Colors.green,
+                          size: 20,
+                        ),
                         const SizedBox(width: 10),
-                        const Expanded(child: Text('Hazard reported successfully!', style: TextStyle(color: Colors.white, fontSize: 14))),
+                        const Expanded(
+                          child: Text(
+                            'Hazard reported successfully!',
+                            style: TextStyle(color: Colors.white, fontSize: 14),
+                          ),
+                        ),
                         TextButton(
                           onPressed: _undoHazardReport,
-                          child: Text('Undo ($_undoSecondsLeft)', style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.w600)),
+                          child: Text(
+                            'Undo ($_undoSecondsLeft)',
+                            style: const TextStyle(
+                              color: Colors.blue,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -1259,11 +1519,18 @@ class _RecordScreenState extends State<RecordScreen> {
                   right: 16,
                   bottom: 190,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xff141414),
                       borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: _proximityPrompt!.type.color.withValues(alpha: .5)),
+                      border: Border.all(
+                        color: _proximityPrompt!.type.color.withValues(
+                          alpha: .5,
+                        ),
+                      ),
                     ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -1271,49 +1538,95 @@ class _RecordScreenState extends State<RecordScreen> {
                       children: [
                         Row(
                           children: [
-                            Icon(_proximityPrompt!.type.icon, color: _proximityPrompt!.type.color, size: 18),
+                            Icon(
+                              _proximityPrompt!.type.icon,
+                              color: _proximityPrompt!.type.color,
+                              size: 18,
+                            ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
                                 'Is this ${_proximityPrompt!.type.label.toLowerCase()} still here?',
-                                style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
                             InkWell(
-                              onTap: _proximityBusy ? null : _dismissProximityPrompt,
-                              child: Icon(Icons.close, color: Colors.grey.shade500, size: 18),
+                              onTap: _proximityBusy
+                                  ? null
+                                  : _dismissProximityPrompt,
+                              child: Icon(
+                                Icons.close,
+                                color: Colors.grey.shade500,
+                                size: 18,
+                              ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 10),
                         if (_proximityBusy)
-                          const Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)))
+                          const Center(
+                            child: SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          )
                         else
                           Row(
                             children: [
                               Expanded(
                                 child: OutlinedButton(
-                                  onPressed: () => _respondToProximityPrompt(stillHere: false),
+                                  onPressed: () => _respondToProximityPrompt(
+                                    stillHere: false,
+                                  ),
                                   style: OutlinedButton.styleFrom(
                                     foregroundColor: Colors.green,
                                     side: const BorderSide(color: Colors.green),
-                                    padding: const EdgeInsets.symmetric(vertical: 8),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 8,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
                                   ),
-                                  child: const Text('Cleared', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                                  child: const Text(
+                                    'Cleared',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: OutlinedButton(
-                                  onPressed: () => _respondToProximityPrompt(stillHere: true),
+                                  onPressed: () => _respondToProximityPrompt(
+                                    stillHere: true,
+                                  ),
                                   style: OutlinedButton.styleFrom(
                                     foregroundColor: Colors.orange,
-                                    side: const BorderSide(color: Colors.orange),
-                                    padding: const EdgeInsets.symmetric(vertical: 8),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                    side: const BorderSide(
+                                      color: Colors.orange,
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 8,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
                                   ),
-                                  child: const Text('Still Here', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                                  child: const Text(
+                                    'Still Here',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ],
@@ -1343,11 +1656,27 @@ class _RecordScreenState extends State<RecordScreen> {
                           flex: 2,
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 10),
-                            decoration: BoxDecoration(color: const Color(0xff1b1b1b), borderRadius: BorderRadius.circular(16)),
+                            decoration: BoxDecoration(
+                              color: const Color(0xff1b1b1b),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
                             child: Column(
                               children: [
-                                Text(_formatDuration(_elapsed), style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-                                Text('Duration', style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+                                Text(
+                                  _formatDuration(_elapsed),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                Text(
+                                  'Duration',
+                                  style: TextStyle(
+                                    color: Colors.grey.shade500,
+                                    fontSize: 12,
+                                  ),
+                                ),
                               ],
                             ),
                           ),
@@ -1369,12 +1698,20 @@ class _RecordScreenState extends State<RecordScreen> {
                       child: ElevatedButton.icon(
                         onPressed: _openReportHazard,
                         icon: const Icon(Icons.warning_amber_rounded),
-                        label: const Text('Report Hazard', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                        label: const Text(
+                          'Report Hazard',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.blue,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
                         ),
                       ),
                     ),
@@ -1399,7 +1736,10 @@ class _RecordScreenState extends State<RecordScreen> {
                         children: [
                           CircularProgressIndicator(color: Colors.white),
                           SizedBox(height: 12),
-                          Text('Saving your activity…', style: TextStyle(color: Colors.white)),
+                          Text(
+                            'Saving your activity…',
+                            style: TextStyle(color: Colors.white),
+                          ),
                         ],
                       ),
                     ),
@@ -1422,7 +1762,11 @@ class _CompletionModal extends StatefulWidget {
   final List<LatLng> route;
   final List<String> hazardIds;
 
-  const _CompletionModal({required this.activity, required this.route, required this.hazardIds});
+  const _CompletionModal({
+    required this.activity,
+    required this.route,
+    required this.hazardIds,
+  });
 
   @override
   State<_CompletionModal> createState() => _CompletionModalState();
@@ -1432,7 +1776,8 @@ class _CompletionModalState extends State<_CompletionModal> {
   bool _isSharing = false;
   bool _shared = false;
   bool _isRetryingSync = false;
-  bool _challengeTapped = false; // disables the Create a Challenge button after use
+  bool _challengeTapped =
+      false; // disables the Create a Challenge button after use
 
   String _durationLabel(Duration d) {
     final h = d.inHours;
@@ -1469,11 +1814,19 @@ class _CompletionModalState extends State<_CompletionModal> {
 
     if (!activityShared) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not share right now, Please try again from Recent Activity later.')),
+        const SnackBar(
+          content: Text(
+            'Could not share right now, Please try again from Recent Activity later.',
+          ),
+        ),
       );
     } else if (!hazardsShared && widget.hazardIds.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Activity shared, but hazard reports could not be shared, Please try again later.')),
+        const SnackBar(
+          content: Text(
+            'Activity shared, but hazard reports could not be shared, Please try again later.',
+          ),
+        ),
       );
     }
   }
@@ -1500,7 +1853,12 @@ class _CompletionModalState extends State<_CompletionModal> {
     // Pushed on top, not a replacement — this modal stays underneath and
     // is still here (with this button now disabled) when the user comes
     // back, so Done's enabled state still only depends on sharing.
-    Navigator.push(context, MaterialPageRoute(builder: (_) => CreateChallengeScreen(seedActivity: current)));
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CreateChallengeScreen(seedActivity: current),
+      ),
+    );
   }
 
   @override
@@ -1529,30 +1887,54 @@ class _CompletionModalState extends State<_CompletionModal> {
               Container(
                 width: 64,
                 height: 64,
-                decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.green),
-                child: const Icon(Icons.emoji_events, color: Colors.white, size: 32),
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.green,
+                ),
+                child: const Icon(
+                  Icons.emoji_events,
+                  color: Colors.white,
+                  size: 32,
+                ),
               ),
               const SizedBox(height: 16),
               const Text(
                 'Congratulations! 🎉',
-                style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 8),
 
               if (a.pendingSync)
                 Container(
                   margin: const EdgeInsets.only(top: 4, bottom: 4),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(color: Colors.orange.withValues(alpha: .12), borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withValues(alpha: .12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.cloud_off, color: Colors.orange, size: 16),
+                      const Icon(
+                        Icons.cloud_off,
+                        color: Colors.orange,
+                        size: 16,
+                      ),
                       const SizedBox(width: 8),
                       Flexible(
                         child: Text(
                           'Saved on your device, Will sync and become shareable once you\'re back online.',
-                          style: TextStyle(color: Colors.orange.shade200, fontSize: 12),
+                          style: TextStyle(
+                            color: Colors.orange.shade200,
+                            fontSize: 12,
+                          ),
                         ),
                       ),
                     ],
@@ -1562,7 +1944,11 @@ class _CompletionModalState extends State<_CompletionModal> {
               Text(
                 'You made ${a.distanceKm.toStringAsFixed(2)} km in ${_durationLabel(a.duration)} '
                 'at an average speed of ${a.avgSpeedKmh.toStringAsFixed(1)} km/h!',
-                style: TextStyle(color: Colors.grey.shade300, fontSize: 15, height: 1.4),
+                style: TextStyle(
+                  color: Colors.grey.shade300,
+                  fontSize: 15,
+                  height: 1.4,
+                ),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 20),
@@ -1579,15 +1965,24 @@ class _CompletionModalState extends State<_CompletionModal> {
                             coordinates: widget.route,
                             padding: const EdgeInsets.all(24),
                           ),
-                          interactionOptions: const InteractionOptions(flags: InteractiveFlag.none),
+                          interactionOptions: const InteractionOptions(
+                            flags: InteractiveFlag.none,
+                          ),
                         ),
                         children: [
                           TileLayer(
-                            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            urlTemplate:
+                                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                             userAgentPackageName: 'com.vitrax.app',
                           ),
                           PolylineLayer(
-                            polylines: [Polyline(points: widget.route, color: Colors.blue, strokeWidth: 4)],
+                            polylines: [
+                              Polyline(
+                                points: widget.route,
+                                color: Colors.blue,
+                                strokeWidth: 4,
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -1599,9 +1994,18 @@ class _CompletionModalState extends State<_CompletionModal> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  _ModalStat(label: 'Distance', value: '${a.distanceKm.toStringAsFixed(2)} km'),
-                  _ModalStat(label: 'Duration', value: _durationLabel(a.duration)),
-                  _ModalStat(label: 'Avg Speed', value: '${a.avgSpeedKmh.toStringAsFixed(1)} km/h'),
+                  _ModalStat(
+                    label: 'Distance',
+                    value: '${a.distanceKm.toStringAsFixed(2)} km',
+                  ),
+                  _ModalStat(
+                    label: 'Duration',
+                    value: _durationLabel(a.duration),
+                  ),
+                  _ModalStat(
+                    label: 'Avg Speed',
+                    value: '${a.avgSpeedKmh.toStringAsFixed(1)} km/h',
+                  ),
                 ],
               ),
               const SizedBox(height: 20),
@@ -1611,7 +2015,11 @@ class _CompletionModalState extends State<_CompletionModal> {
                 hasHazards
                     ? 'Share with the community so everyone can see your reports and stay informed.'
                     : 'Share with the community so everyone can see your progress.',
-                style: TextStyle(color: Colors.grey.shade500, fontSize: 12.5, height: 1.4),
+                style: TextStyle(
+                  color: Colors.grey.shade500,
+                  fontSize: 12.5,
+                  height: 1.4,
+                ),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 10),
@@ -1631,22 +2039,40 @@ class _CompletionModalState extends State<_CompletionModal> {
                           disabledForegroundColor: Colors.green,
                           side: const BorderSide(color: Colors.green),
                           padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
                         ),
                       )
                     : ElevatedButton.icon(
                         onPressed: _isSharing
                             ? null
-                            : (a.pendingSync ? (_isRetryingSync ? null : _retrySync) : _shareToCommunity),
+                            : (a.pendingSync
+                                  ? (_isRetryingSync ? null : _retrySync)
+                                  : _shareToCommunity),
                         icon: (_isSharing || _isRetryingSync)
-                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                            : Icon(a.pendingSync ? Icons.refresh : Icons.share, size: 18),
-                        label: Text(a.pendingSync ? 'Retry Sync' : 'Share to Community'),
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Icon(
+                                a.pendingSync ? Icons.refresh : Icons.share,
+                                size: 18,
+                              ),
+                        label: Text(
+                          a.pendingSync ? 'Retry Sync' : 'Share to Community',
+                        ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.blue,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
                         ),
                       ),
               ),
@@ -1664,7 +2090,9 @@ class _CompletionModalState extends State<_CompletionModal> {
                           disabledForegroundColor: Colors.grey,
                           side: BorderSide(color: Colors.grey.shade700),
                           padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
                         ),
                       )
                     : ElevatedButton.icon(
@@ -1675,7 +2103,9 @@ class _CompletionModalState extends State<_CompletionModal> {
                           backgroundColor: Colors.blue,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
                         ),
                       ),
               ),
@@ -1693,14 +2123,18 @@ class _CompletionModalState extends State<_CompletionModal> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: (_shared || a.pendingSync) ? () => Navigator.pop(context) : null,
+                  onPressed: (_shared || a.pendingSync)
+                      ? () => Navigator.pop(context)
+                      : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.blue,
                     disabledBackgroundColor: const Color(0xff1a1a1a),
                     foregroundColor: Colors.white,
                     disabledForegroundColor: Colors.grey.shade600,
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                   ),
                   child: Text(
                     _shared || a.pendingSync ? 'Done' : 'Share to enable Done',
@@ -1725,9 +2159,19 @@ class _ModalStat extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(value, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         const SizedBox(height: 4),
-        Text(label, style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+        Text(
+          label,
+          style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+        ),
       ],
     );
   }
@@ -1740,7 +2184,13 @@ class _StatRow extends StatelessWidget {
   final String unit;
   final String label;
 
-  const _StatRow({required this.icon, required this.iconColor, required this.value, required this.unit, required this.label});
+  const _StatRow({
+    required this.icon,
+    required this.iconColor,
+    required this.value,
+    required this.unit,
+    required this.label,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1756,14 +2206,34 @@ class _StatRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.baseline,
                 textBaseline: TextBaseline.alphabetic,
                 children: [
-                  Text(value, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   if (unit.isNotEmpty) ...[
                     const SizedBox(width: 3),
-                    Text(unit, style: TextStyle(color: Colors.grey.shade400, fontSize: 11)),
+                    Text(
+                      unit,
+                      style: TextStyle(
+                        color: Colors.grey.shade400,
+                        fontSize: 11,
+                      ),
+                    ),
                   ],
                 ],
               ),
-              Text(label, style: TextStyle(color: Colors.grey.shade600, fontSize: 9, letterSpacing: 0.5)),
+              Text(
+                label,
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontSize: 9,
+                  letterSpacing: 0.5,
+                ),
+              ),
             ],
           ),
         ),
@@ -1778,7 +2248,12 @@ class _ControlBox extends StatelessWidget {
   final VoidCallback onTap;
   final Color color;
 
-  const _ControlBox({required this.icon, required this.label, required this.onTap, required this.color});
+  const _ControlBox({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1787,12 +2262,18 @@ class _ControlBox extends StatelessWidget {
       borderRadius: BorderRadius.circular(16),
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 14),
-        decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(16)),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(16),
+        ),
         child: Column(
           children: [
             Icon(icon, color: Colors.white),
             const SizedBox(height: 4),
-            Text(label, style: const TextStyle(color: Colors.white, fontSize: 13)),
+            Text(
+              label,
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+            ),
           ],
         ),
       ),
@@ -1820,20 +2301,35 @@ class _ExitConfirmDialog extends StatelessWidget {
             Container(
               width: 56,
               height: 56,
-              decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.orange.withValues(alpha: .15)),
-              child: const Icon(Icons.pause_circle_outline, color: Colors.orange, size: 30),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.orange.withValues(alpha: .15),
+              ),
+              child: const Icon(
+                Icons.pause_circle_outline,
+                color: Colors.orange,
+                size: 30,
+              ),
             ),
             const SizedBox(height: 16),
             const Text(
               'Do you want to stop your activity?',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               'Your timer is paused. Choose Stop to save what you\'ve recorded, or Continue to keep going.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade400, fontSize: 13.5, height: 1.4),
+              style: TextStyle(
+                color: Colors.grey.shade400,
+                fontSize: 13.5,
+                height: 1.4,
+              ),
             ),
             const SizedBox(height: 24),
             Row(
@@ -1845,9 +2341,14 @@ class _ExitConfirmDialog extends StatelessWidget {
                       foregroundColor: Colors.white,
                       side: const BorderSide(color: Colors.white24),
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
-                    child: const Text('Continue', style: TextStyle(fontWeight: FontWeight.w600)),
+                    child: const Text(
+                      'Continue',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -1858,9 +2359,14 @@ class _ExitConfirmDialog extends StatelessWidget {
                       backgroundColor: Colors.red,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
-                    child: const Text('Stop', style: TextStyle(fontWeight: FontWeight.w600)),
+                    child: const Text(
+                      'Stop',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
                   ),
                 ),
               ],
@@ -1893,19 +2399,34 @@ class _CheckInDialog extends StatelessWidget {
             Container(
               width: 56,
               height: 56,
-              decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.blue.withValues(alpha: .15)),
-              child: const Icon(Icons.help_outline, color: Colors.blue, size: 30),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.blue.withValues(alpha: .15),
+              ),
+              child: const Icon(
+                Icons.help_outline,
+                color: Colors.blue,
+                size: 30,
+              ),
             ),
             const SizedBox(height: 16),
             const Text(
               'Are you okay?',
-              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               "We haven't detected movement in a while.",
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade400, fontSize: 13.5, height: 1.4),
+              style: TextStyle(
+                color: Colors.grey.shade400,
+                fontSize: 13.5,
+                height: 1.4,
+              ),
             ),
             const SizedBox(height: 12),
             ValueListenableBuilder<int>(
@@ -1925,9 +2446,14 @@ class _CheckInDialog extends StatelessWidget {
                       foregroundColor: Colors.white,
                       side: const BorderSide(color: Colors.white24),
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
-                    child: const Text('Yes, I\'m okay', style: TextStyle(fontWeight: FontWeight.w600)),
+                    child: const Text(
+                      'Yes, I\'m okay',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -1938,9 +2464,14 @@ class _CheckInDialog extends StatelessWidget {
                       backgroundColor: Colors.red,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
-                    child: const Text('No', style: TextStyle(fontWeight: FontWeight.w600)),
+                    child: const Text(
+                      'No',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
                   ),
                 ),
               ],
@@ -1980,12 +2511,20 @@ class _StopReasonDialog extends StatelessWidget {
           children: [
             const Text(
               'What happened?',
-              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: 4),
             Text(
               "This just helps keep your own record, It isn't shared unless you choose to.",
-              style: TextStyle(color: Colors.grey.shade500, fontSize: 12.5, height: 1.3),
+              style: TextStyle(
+                color: Colors.grey.shade500,
+                fontSize: 12.5,
+                height: 1.3,
+              ),
             ),
             const SizedBox(height: 16),
             ..._reasons.map(
@@ -1995,13 +2534,27 @@ class _StopReasonDialog extends StatelessWidget {
                   onTap: () => Navigator.pop(context, r.$1),
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    decoration: BoxDecoration(color: const Color(0xff1a1a1a), borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xff1a1a1a),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     child: Row(
                       children: [
                         Icon(r.$2, color: Colors.blue, size: 18),
                         const SizedBox(width: 12),
-                        Expanded(child: Text(r.$1, style: const TextStyle(color: Colors.white, fontSize: 14))),
+                        Expanded(
+                          child: Text(
+                            r.$1,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -2012,7 +2565,10 @@ class _StopReasonDialog extends StatelessWidget {
               alignment: Alignment.centerRight,
               child: TextButton(
                 onPressed: () => Navigator.pop(context, null),
-                child: Text('Skip', style: TextStyle(color: Colors.grey.shade500)),
+                child: Text(
+                  'Skip',
+                  style: TextStyle(color: Colors.grey.shade500),
+                ),
               ),
             ),
           ],
@@ -2032,10 +2588,14 @@ class _StopReasonDialog extends StatelessWidget {
 class _LiveClusterDetailSheet extends StatefulWidget {
   final HazardCluster cluster;
   final String Function(DateTime) relativeTimeLabel;
-  const _LiveClusterDetailSheet({required this.cluster, required this.relativeTimeLabel});
+  const _LiveClusterDetailSheet({
+    required this.cluster,
+    required this.relativeTimeLabel,
+  });
 
   @override
-  State<_LiveClusterDetailSheet> createState() => _LiveClusterDetailSheetState();
+  State<_LiveClusterDetailSheet> createState() =>
+      _LiveClusterDetailSheetState();
 }
 
 class _LiveClusterDetailSheetState extends State<_LiveClusterDetailSheet> {
@@ -2044,7 +2604,8 @@ class _LiveClusterDetailSheetState extends State<_LiveClusterDetailSheet> {
   bool _loadingStatus = true;
   final Set<String> _busyIds = {};
 
-  late final List<HazardReport> _sortedReports = [...widget.cluster.reports]..sort((a, b) => b.reportedAt.compareTo(a.reportedAt));
+  late final List<HazardReport> _sortedReports = [...widget.cluster.reports]
+    ..sort((a, b) => b.reportedAt.compareTo(a.reportedAt));
 
   @override
   void initState() {
@@ -2053,9 +2614,14 @@ class _LiveClusterDetailSheetState extends State<_LiveClusterDetailSheet> {
   }
 
   Future<void> _loadStatus() async {
-    final ids = _sortedReports.where((r) => r.id != null).map((r) => r.id!).toList();
+    final ids = _sortedReports
+        .where((r) => r.id != null)
+        .map((r) => r.id!)
+        .toList();
     final clearStatus = await HazardService.fetchClearStatus(ids);
-    final verifyStatus = await CommunityImpactService.fetchVerificationStatus(ids);
+    final verifyStatus = await CommunityImpactService.fetchVerificationStatus(
+      ids,
+    );
     if (!mounted) return;
     setState(() {
       _clearStatus = clearStatus;
@@ -2075,7 +2641,11 @@ class _LiveClusterDetailSheetState extends State<_LiveClusterDetailSheet> {
     } else {
       ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Couldn't confirm, You may be the original reporter, or you've already confirmed this one.")),
+        const SnackBar(
+          content: Text(
+            "Couldn't confirm, You may be the original reporter, or you've already confirmed this one.",
+          ),
+        ),
       );
     }
   }
@@ -2089,11 +2659,19 @@ class _LiveClusterDetailSheetState extends State<_LiveClusterDetailSheet> {
     if (success) {
       _loadStatus();
       ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Thanks, This helps keep reports trustworthy.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Thanks, This helps keep reports trustworthy.'),
+        ),
+      );
     } else {
       ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Couldn't confirm, You may be the original reporter, or you've already confirmed this one.")),
+        const SnackBar(
+          content: Text(
+            "Couldn't confirm, You may be the original reporter, or you've already confirmed this one.",
+          ),
+        ),
       );
     }
   }
@@ -2113,7 +2691,10 @@ class _LiveClusterDetailSheetState extends State<_LiveClusterDetailSheet> {
               children: [
                 Container(
                   padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(shape: BoxShape.circle, color: cluster.type.color),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: cluster.type.color,
+                  ),
                   child: Icon(cluster.type.icon, color: Colors.white, size: 18),
                 ),
                 const SizedBox(width: 12),
@@ -2121,10 +2702,22 @@ class _LiveClusterDetailSheetState extends State<_LiveClusterDetailSheet> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(cluster.type.label, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                       Text(
-                        cluster.count == 1 ? 'Reported once' : 'Reported ${cluster.count} times',
-                        style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+                        cluster.type.label,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        cluster.count == 1
+                            ? 'Reported once'
+                            : 'Reported ${cluster.count} times',
+                        style: TextStyle(
+                          color: Colors.grey.shade400,
+                          fontSize: 13,
+                        ),
                       ),
                     ],
                   ),
@@ -2133,17 +2726,22 @@ class _LiveClusterDetailSheetState extends State<_LiveClusterDetailSheet> {
             ),
             const SizedBox(height: 16),
             ConstrainedBox(
-              constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.5),
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.5,
+              ),
               child: ListView.separated(
                 shrinkWrap: true,
                 itemCount: _sortedReports.length,
-                separatorBuilder: (_, __) => Divider(color: Colors.white10, height: 20),
+                separatorBuilder: (_, __) =>
+                    Divider(color: Colors.white10, height: 20),
                 itemBuilder: (context, index) {
                   final r = _sortedReports[index];
                   final clearStatus = r.id != null ? _clearStatus[r.id] : null;
                   final clearCount = clearStatus?.count ?? 0;
                   final clearedByMe = clearStatus?.byMe ?? false;
-                  final verifyStatus = r.id != null ? _verifyStatus[r.id] : null;
+                  final verifyStatus = r.id != null
+                      ? _verifyStatus[r.id]
+                      : null;
                   final verifiedByMe = verifyStatus?.byMe ?? false;
                   final busy = r.id != null && _busyIds.contains(r.id);
 
@@ -2152,48 +2750,110 @@ class _LiveClusterDetailSheetState extends State<_LiveClusterDetailSheet> {
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.circle, size: 6, color: Colors.grey.shade600),
+                          Icon(
+                            Icons.circle,
+                            size: 6,
+                            color: Colors.grey.shade600,
+                          ),
                           const SizedBox(width: 10),
-                          Text(widget.relativeTimeLabel(r.reportedAt), style: TextStyle(color: Colors.grey.shade300, fontSize: 13)),
+                          Text(
+                            widget.relativeTimeLabel(r.reportedAt),
+                            style: TextStyle(
+                              color: Colors.grey.shade300,
+                              fontSize: 13,
+                            ),
+                          ),
                         ],
                       ),
                       if (r.id != null) ...[
                         const SizedBox(height: 8),
                         if (_loadingStatus)
-                          const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                          const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
                         else
                           Wrap(
                             spacing: 8,
                             runSpacing: 6,
                             children: [
                               OutlinedButton(
-                                onPressed: (verifiedByMe || busy) ? null : () => _confirmStillHere(r.id!),
+                                onPressed: (verifiedByMe || busy)
+                                    ? null
+                                    : () => _confirmStillHere(r.id!),
                                 style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
                                   minimumSize: Size.zero,
-                                  side: BorderSide(color: verifiedByMe ? Colors.blue : Colors.white24),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                  side: BorderSide(
+                                    color: verifiedByMe
+                                        ? Colors.blue
+                                        : Colors.white24,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
                                 ),
                                 child: busy
-                                    ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2))
+                                    ? const SizedBox(
+                                        width: 12,
+                                        height: 12,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
                                     : Text(
-                                        verifiedByMe ? 'Verified still here' : 'Still Here?',
-                                        style: TextStyle(color: verifiedByMe ? Colors.blue : Colors.white70, fontSize: 11),
+                                        verifiedByMe
+                                            ? 'Verified still here'
+                                            : 'Still Here?',
+                                        style: TextStyle(
+                                          color: verifiedByMe
+                                              ? Colors.blue
+                                              : Colors.white70,
+                                          fontSize: 11,
+                                        ),
                                       ),
                               ),
                               OutlinedButton(
-                                onPressed: (clearedByMe || busy) ? null : () => _confirmClear(r.id!),
+                                onPressed: (clearedByMe || busy)
+                                    ? null
+                                    : () => _confirmClear(r.id!),
                                 style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
                                   minimumSize: Size.zero,
-                                  side: BorderSide(color: clearedByMe ? Colors.green : Colors.white24),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                  side: BorderSide(
+                                    color: clearedByMe
+                                        ? Colors.green
+                                        : Colors.white24,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
                                 ),
                                 child: busy
-                                    ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2))
+                                    ? const SizedBox(
+                                        width: 12,
+                                        height: 12,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
                                     : Text(
-                                        clearedByMe ? 'Confirmed $clearCount/3' : 'Clear Now ($clearCount/3)',
-                                        style: TextStyle(color: clearedByMe ? Colors.green : Colors.white70, fontSize: 11),
+                                        clearedByMe
+                                            ? 'Confirmed $clearCount/3'
+                                            : 'Clear Now ($clearCount/3)',
+                                        style: TextStyle(
+                                          color: clearedByMe
+                                              ? Colors.green
+                                              : Colors.white70,
+                                          fontSize: 11,
+                                        ),
                                       ),
                               ),
                             ],
