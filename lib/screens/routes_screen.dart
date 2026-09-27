@@ -18,6 +18,7 @@ import 'placeholder_screen.dart';
 import 'community_feed_screen.dart';
 import 'profile_screen.dart';
 import 'record_screen.dart';
+import 'plan_route_screen.dart';
 
 /// Community routes — anyone can browse these, whether or not they've
 /// recorded an activity themselves. Shows every route a user has chosen
@@ -102,6 +103,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
         ),
       );
+      
     }
 
     return SingleChildScrollView(
@@ -209,6 +211,16 @@ class _RoutesScreenState extends State<RoutesScreen> {
                         Text('Shared by the community', style: TextStyle(color: Colors.grey.shade500, fontSize: 14)),
                         const SizedBox(height: 18),
                         _buildTierFilterRow(),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PlanRouteScreen(activityType: ActivityType.run))),
+                            icon: const Icon(Icons.alt_route, color: Colors.blueAccent),
+                            label: const Text('Plan a Route', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.w600)),
+                            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12), side: const BorderSide(color: Colors.blueAccent)),
+                          ),
+                        ),
                         _buildLocationFilter(),
                         const SizedBox(height: 12),
                       ],

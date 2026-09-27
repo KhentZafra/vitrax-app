@@ -12,4 +12,5 @@
 class Env {
   static const supabaseUrl = 'https://YOUR_PROJECT_REF.supabase.co';
   static const supabaseAnonKey = 'YOUR_ANON_PUBLIC_KEY';
+  static const orsApiKey = 'YOUR_OPENROUTESERVICE_API_KEY';
 }

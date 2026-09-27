@@ -13,6 +13,7 @@ import '../models/hazard_cluster.dart';
 import '../services/hazard_service.dart';
 import '../services/community_impact_service.dart';
 import '../services/notification_service.dart';
+import '../services/tts_service.dart';
 import '../widgets/report_hazard_sheet.dart';
 import 'create_challenge_screen.dart';
 
@@ -533,6 +534,7 @@ class _RecordScreenState extends State<RecordScreen> {
       // as the stillness alert above — the banner only renders while
       // this screen is on top and visible.
       NotificationService.showHazardNearby(candidate.type.label.toLowerCase());
+      TtsService.speakHazardAlert(hazardLabel: candidate.type.label.toLowerCase(), distanceMeters: distance);
       return; // one at a time
     }
   }
