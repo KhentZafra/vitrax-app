@@ -19,6 +19,20 @@ class VoiceCommandService {
   static bool _available = false;
   static bool _checkedAvailability = false;
 
+  /// Triggers the microphone permission prompt right away, ahead of any
+  /// actual recording — call this once, as soon as record_screen.dart
+  /// opens, rather than letting the first hazard proximity trigger it
+  /// mid-run. Asking upfront means the person deals with the OS
+  /// permission dialog while standing still looking at their phone
+  /// (the normal, expected moment for a permission prompt), not while
+  /// they're moving and the phone is mid-sentence reading out a hazard
+  /// alert. Safe to call every time the screen opens — [_ensureAvailable]
+  /// only actually asks Android/iOS once per app install; every call
+  /// after the first just returns the already-known answer.
+  static Future<void> warmUp() async {
+    await _ensureAvailable();
+  }
+
   static Future<bool> _ensureAvailable() async {
     if (_checkedAvailability) return _available;
     _checkedAvailability = true;
