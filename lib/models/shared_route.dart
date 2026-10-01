@@ -83,9 +83,10 @@ double hazardRecencyMultiplier(DateTime reportedAt) {
 class SharedRoute {
   final Activity activity;
   final String sharerName;
+  final String? sharerAvatarUrl;
   final List<HazardReport> hazards;
 
-  SharedRoute({required this.activity, required this.sharerName, required this.hazards});
+  SharedRoute({required this.activity, required this.sharerName, this.sharerAvatarUrl, required this.hazards});
 
   factory SharedRoute.fromMap(Map<String, dynamic> map, {required List<HazardReport> hazards}) {
     final activity = Activity.fromMap(map);
@@ -97,6 +98,7 @@ class SharedRoute {
     return SharedRoute(
       activity: activity,
       sharerName: name.isEmpty ? 'A Vitrax user' : name,
+      sharerAvatarUrl: profile?['avatar_url'] as String?,
       hazards: hazards,
     );
   }

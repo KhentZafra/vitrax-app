@@ -15,6 +15,7 @@ import 'all_activities_screen.dart';
 import 'community_feed_screen.dart';
 import 'routes_screen.dart';
 import '../widgets/route_nav_icon.dart';
+import '../widgets/user_avatar.dart';
 import 'profile_screen.dart';
 
 class _Palette {
@@ -36,6 +37,7 @@ class _HomeScreenState extends State<HomeScreen> {
   late final StreamSubscription<List<ConnectivityResult>> _connectionSub;
 
   String _fullName = 'Loading Username';
+  String? _avatarUrl;
   bool _isLoadingProfile = true;
   bool _isConnected = true;
 
@@ -92,6 +94,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       setState(() {
         _fullName = '${profile['first_name']} ${profile['last_name']}';
+        _avatarUrl = profile['avatar_url'] as String?;
         _isLoadingProfile = false;
       });
     } catch (_) {
@@ -228,15 +231,7 @@ class _HomeScreenState extends State<HomeScreen> {
         InkWell(
           onTap: _openProfile,
           borderRadius: BorderRadius.circular(26),
-          child: Container(
-            height: 52,
-            width: 52,
-            decoration: const BoxDecoration(
-              color: _Palette.cardAlt,
-              borderRadius: BorderRadius.all(Radius.circular(26)),
-            ),
-            child: const Icon(Icons.person, color: Colors.grey, size: 26),
-          ),
+          child: UserAvatar(avatarUrl: _avatarUrl, radius: 26, backgroundColor: _Palette.cardAlt),
         ),
       ],
     );

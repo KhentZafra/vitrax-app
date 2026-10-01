@@ -27,6 +27,7 @@ class FeedItem {
   final FeedItemKind kind;
   final String posterUserId;
   final String sharerName;
+  final String? sharerAvatarUrl;
   final String? caption;
   final String? mediaUrl;
   final FeedMediaType? mediaType; // null only for an activity-share with no photo (shows route sketch)
@@ -40,6 +41,7 @@ class FeedItem {
     required this.kind,
     required this.posterUserId,
     required this.sharerName,
+    this.sharerAvatarUrl,
     this.caption,
     this.mediaUrl,
     this.mediaType,
@@ -61,6 +63,7 @@ class FeedItem {
       kind: FeedItemKind.activityShare,
       posterUserId: activity.userId,
       sharerName: name.isEmpty ? 'A Vitrax user' : name,
+      sharerAvatarUrl: profile?['avatar_url'] as String?,
       caption: activity.caption,
       mediaUrl: activity.photoUrl,
       mediaType: activity.photoUrl != null ? FeedMediaType.photo : null,
@@ -82,6 +85,7 @@ class FeedItem {
       kind: FeedItemKind.standalonePost,
       posterUserId: row['user_id'] as String,
       sharerName: name.isEmpty ? 'A Vitrax user' : name,
+      sharerAvatarUrl: profile?['avatar_url'] as String?,
       caption: row['caption'] as String?,
       mediaUrl: row['media_url'] as String,
       mediaType: _mediaTypeFromString(row['media_type'] as String?),
@@ -97,6 +101,7 @@ class FeedItem {
       kind: kind,
       posterUserId: posterUserId,
       sharerName: sharerName,
+      sharerAvatarUrl: sharerAvatarUrl,
       caption: caption,
       mediaUrl: mediaUrl,
       mediaType: mediaType,

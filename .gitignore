@@ -39,3 +39,6 @@ Thumbs.db
 
 supabase/.temp/
 lib (2).zip
+# Local backup copies made while editing - not part of the app
+_backup_*/
+**/_backup_*/

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/chat_message.dart';
 import '../providers/chat_unread_provider.dart';
 import '../services/chat_service.dart';
+import '../widgets/user_avatar.dart';
 import 'chat_thread_screen.dart';
 
 /// Standalone "Messages" screen — still usable anywhere a full pushable
@@ -104,7 +105,7 @@ class _ChatConversationsListState extends State<ChatConversationsList> {
                           await Navigator.push(context, MaterialPageRoute(builder: (_) => ChatThreadScreen(conversationId: c.id, otherUserId: c.otherUserId, otherUserName: c.otherUserName)));
                           _load();
                         },
-                        leading: CircleAvatar(radius: 22, backgroundColor: const Color(0xff222222), child: const Icon(Icons.person, color: Colors.grey)),
+                        leading: UserAvatar(avatarUrl: c.otherUserAvatarUrl, radius: 22),
                         title: Text(
                           c.otherUserName,
                           style: TextStyle(color: Colors.white, fontWeight: c.isUnread ? FontWeight.bold : FontWeight.w600),

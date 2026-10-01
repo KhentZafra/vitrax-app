@@ -81,6 +81,25 @@ class TtsService {
     }
   }
 
+  /// Speaks a plain one-off message with no follow-up action — e.g. the
+  /// "Thank you for confirming" line after someone answers the hazard
+  /// still-here prompt, by tap or by voice. Explicitly clears any
+  /// completion handler left over from [speakThen] first; otherwise a
+  /// stale handler could fire again once THIS speech finishes, wrongly
+  /// re-triggering voice listening a second time.
+  static Future<void> speak(String message) async {
+    await _ensureInitialized();
+    if (!_initialized) return;
+
+    try {
+      await _tts.stop();
+      _tts.setCompletionHandler(() {});
+      await _tts.speak(message);
+    } catch (e) {
+      if (kDebugMode) print('TtsService.speak failed: $e');
+    }
+  }
+
   /// Stops any in-progress speech immediately — call this when the
   /// recording session ends or the screen is disposed, so an alert
   /// doesn't keep talking after the user has left the tracking screen.

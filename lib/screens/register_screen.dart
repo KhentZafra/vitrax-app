@@ -305,15 +305,40 @@ class _RegisterScreenState extends State<RegisterScreen> {
         });
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+          await showDialog<void>(
+            context: context,
+            barrierDismissible: false,
+            builder: (dialogContext) => AlertDialog(
+              backgroundColor: const Color(0xff111111),
+              title: const Text('Check your email', style: TextStyle(color: Colors.white)),
               content: Text(
-                "Registration successful! Please verify your email.",
+                "We've sent a confirmation link to ${emailController.text.trim()}. Open it to verify the address is real before you can sign in.",
+                style: const TextStyle(color: Colors.grey),
               ),
+              actions: [
+                TextButton(
+                  onPressed: () async {
+                    try {
+                      await supabase.auth.resend(type: OtpType.signup, email: emailController.text.trim());
+                      if (dialogContext.mounted) {
+                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                          const SnackBar(content: Text('Confirmation email resent.')),
+                        );
+                      }
+                    } catch (_) {}
+                  },
+                  child: const Text('Resend Email', style: TextStyle(color: Colors.grey)),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xff3D7DFF)),
+                  child: const Text('Got it', style: TextStyle(color: Colors.white)),
+                ),
+              ],
             ),
           );
 
-          Navigator.pop(context);
+          if (mounted) Navigator.pop(context);
         }
       }
     } on AuthException catch (e) {

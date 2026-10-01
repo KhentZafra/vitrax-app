@@ -155,6 +155,18 @@ class _RecordScreenState extends State<RecordScreen> {
     // Post-frame so context/ScaffoldMessenger is safe to use if a
     // permission snackbar needs to show immediately.
     WidgetsBinding.instance.addPostFrameCallback((_) => _watchForAutoStart());
+
+    // Ask for microphone permission now, while the user is standing
+    // still looking at this screen — not later, mid-run, the first time
+    // a hazard proximity prompt tries to listen for a spoken yes/no.
+    // VoiceCommandService caches whatever the OS permission result is
+    // the first time it checks (success OR failure), so if that first
+    // check happens awkwardly during a hazard alert and gets missed or
+    // denied, voice responses would silently stop working for the rest
+    // of this app install. Calling warmUp() here instead means the
+    // permission is already resolved, successfully, well before it's
+    // ever actually needed.
+    VoiceCommandService.warmUp();
   }
 
   @override
@@ -626,15 +638,11 @@ class _RecordScreenState extends State<RecordScreen> {
     NotificationService.cancelHazardAlert();
 
     if (!success) {
-      _showSnack(
-        "Couldn't record that, You may be the original reporter, or already confirmed this one.",
-      );
+      TtsService.speak("Sorry, that couldn't be recorded. You may be the original reporter, or already confirmed this one.");
+      _showSnack("Couldn't record that, You may be the original reporter, or already confirmed this one.");
     } else {
-      _showSnack(
-        stillHere
-            ? 'Thanks!, This helps keep reports trustworthy.'
-            : 'Thanks for helping keep the map accurate.',
-      );
+      TtsService.speak('Thank you for confirming. Your confirmation is greatly appreciated.');
+      _showSnack(stillHere ? 'Thanks!, This helps keep reports trustworthy.' : 'Thanks for helping keep the map accurate.');
     }
   }
 

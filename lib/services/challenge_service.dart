@@ -27,7 +27,7 @@ class ChallengeService {
     try {
       final rows = await _supabase
           .from('challenges')
-          .select('*, profiles(first_name, last_name)')
+          .select('*, profiles(first_name, last_name, avatar_url)')
           .order('start_date', ascending: false);
 
       final challengeRows = (rows as List).cast<Map<String, dynamic>>();
@@ -82,7 +82,7 @@ class ChallengeService {
     if (user == null) return null;
 
     try {
-      final inserted = await _supabase.from('challenges').insert(challenge.toInsertMap(creatorId: user.id)).select('*, profiles(first_name, last_name)').single();
+      final inserted = await _supabase.from('challenges').insert(challenge.toInsertMap(creatorId: user.id)).select('*, profiles(first_name, last_name, avatar_url)').single();
 
       final participantRow = <String, dynamic>{
         'challenge_id': inserted['id'],
@@ -188,7 +188,7 @@ class ChallengeService {
     try {
       final rows = await _supabase
           .from('challenge_participants')
-          .select('user_id, completed_at, progress_value, profiles(first_name, last_name)')
+          .select('user_id, completed_at, progress_value, profiles(first_name, last_name, avatar_url)')
           .eq('challenge_id', challengeId);
 
       return (rows as List).cast<Map<String, dynamic>>().map((row) {
@@ -200,6 +200,7 @@ class ChallengeService {
         return ChallengeStanding(
           userId: row['user_id'] as String,
           name: name.isEmpty ? 'A Vitrax user' : name,
+          avatarUrl: profile?['avatar_url'] as String?,
           completedAt: completedAtRaw != null ? DateTime.parse(completedAtRaw) : null,
           progressValue: (row['progress_value'] as num?)?.toDouble() ?? 0.0,
         );
@@ -218,7 +219,7 @@ class ChallengeService {
     try {
       final rows = await _supabase
           .from('challenge_participants')
-          .select('completed_at, profiles(first_name, last_name)')
+          .select('completed_at, profiles(first_name, last_name, avatar_url)')
           .eq('challenge_id', challengeId)
           .not('completed_at', 'is', null)
           .order('completed_at', ascending: false);
@@ -279,7 +280,7 @@ class ChallengeService {
     try {
       final participantRows = await _supabase
           .from('challenge_participants')
-          .select('user_id, gcash_qr_url, profiles(first_name, last_name)')
+          .select('user_id, gcash_qr_url, profiles(first_name, last_name, avatar_url)')
           .eq('challenge_id', challenge.id);
 
       final participants = (participantRows as List).cast<Map<String, dynamic>>();
@@ -345,6 +346,7 @@ class ChallengeService {
           best = ChallengeWinner(
             userId: userId,
             name: name.isEmpty ? 'A Vitrax user' : name,
+            avatarUrl: profile?['avatar_url'] as String?,
             progress: progress,
             gcashQrUrl: p['gcash_qr_url'] as String?,
             prizePaid: paidUserIds.contains(userId),
@@ -375,7 +377,7 @@ class ChallengeService {
     try {
       final participantRows = await _supabase
           .from('challenge_participants')
-          .select('user_id, duration_seconds, activity_id, gcash_qr_url, profiles(first_name, last_name)')
+          .select('user_id, duration_seconds, activity_id, gcash_qr_url, profiles(first_name, last_name, avatar_url)')
           .eq('challenge_id', challenge.id)
           .not('duration_seconds', 'is', null);
 
@@ -409,6 +411,7 @@ class ChallengeService {
           best = ChallengeWinner(
             userId: userId,
             name: name.isEmpty ? 'A Vitrax user' : name,
+            avatarUrl: profile?['avatar_url'] as String?,
             progress: seconds.toDouble(),
             gcashQrUrl: p['gcash_qr_url'] as String?,
             prizePaid: paidUserIds.contains(userId),
@@ -534,7 +537,7 @@ class ChallengeService {
     try {
       final rows = await _supabase
           .from('challenge_participants')
-          .select('user_id, duration_seconds, profiles(first_name, last_name)')
+          .select('user_id, duration_seconds, profiles(first_name, last_name, avatar_url)')
           .eq('challenge_id', challenge.id)
           .not('duration_seconds', 'is', null)
           .order('duration_seconds', ascending: true);
@@ -548,6 +551,7 @@ class ChallengeService {
         return ChallengeTimeEntry(
           userId: userId,
           name: name.isEmpty ? 'A Vitrax user' : name,
+          avatarUrl: profile?['avatar_url'] as String?,
           duration: Duration(seconds: row['duration_seconds'] as int),
           isCreator: userId == challenge.creatorId,
         );
@@ -567,9 +571,10 @@ class ChallengeService {
 class ChallengeStanding {
   final String userId;
   final String name;
+  final String? avatarUrl;
   final DateTime? completedAt;
   final double progressValue;
-  const ChallengeStanding({required this.userId, required this.name, required this.completedAt, required this.progressValue});
+  const ChallengeStanding({required this.userId, required this.name, this.avatarUrl, required this.completedAt, required this.progressValue});
 
   bool get isCompleted => completedAt != null;
 }
@@ -591,7 +596,8 @@ class ChallengeAttemptResult {
 class ChallengeTimeEntry {
   final String userId;
   final String name;
+  final String? avatarUrl;
   final Duration duration;
   final bool isCreator;
-  const ChallengeTimeEntry({required this.userId, required this.name, required this.duration, required this.isCreator});
+  const ChallengeTimeEntry({required this.userId, required this.name, this.avatarUrl, required this.duration, required this.isCreator});
 }

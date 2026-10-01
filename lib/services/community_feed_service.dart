@@ -38,7 +38,7 @@ class CommunityFeedService {
   static Future<List<FeedItem>> _fetchActivityShares(String? currentUserId) async {
     final rows = await _supabase
         .from('activities')
-        .select('*, profiles(first_name, last_name)')
+        .select('*, profiles(first_name, last_name, avatar_url)')
         .eq('shared', true)
         .order('created_at', ascending: false);
 
@@ -68,7 +68,7 @@ class CommunityFeedService {
   static Future<List<FeedItem>> _fetchStandalonePosts(String? currentUserId) async {
     final rows = await _supabase
         .from('community_posts')
-        .select('*, profiles(first_name, last_name)')
+        .select('*, profiles(first_name, last_name, avatar_url)')
         .order('created_at', ascending: false);
 
     final postRows = (rows as List).cast<Map<String, dynamic>>();

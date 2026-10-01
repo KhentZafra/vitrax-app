@@ -145,13 +145,23 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
                     onTap: () => _selectActivity(ActivityType.ride),
                   ),
                   const SizedBox(height: 20),
-                  _ActivityCard(
+                                    _ActivityCard(
                     title: 'Running',
                     subtitle: 'Log your running sessions',
                     tags: const ['Road', 'Trail', 'Marathon'],
                     accentColor: Colors.orange,
                     icon: Icons.directions_run,
                     onTap: () => _selectActivity(ActivityType.run),
+                  ),
+                  const SizedBox(height: 24),
+                  Center(
+                    child: TextButton(
+                      onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false),
+                      child: Text(
+                        'Not today, just browsing',
+                        style: TextStyle(color: Colors.grey.shade500, fontSize: 15, fontWeight: FontWeight.w600),
+                      ),
+                    ),
                   ),
                 ],
               ),

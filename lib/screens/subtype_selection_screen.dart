@@ -29,10 +29,24 @@ const _runningSubtypes = [
 /// ActivitySelectionScreen, this screen lets the user pick the specific
 /// subtype. Tapping one navigates straight to RecordScreen — a separate,
 /// dedicated screen, not a dropdown embedded inside the map screen.
+///
+/// [referenceRoute]/[referenceRouteLabel] are set only when reached from
+/// "Track This Route" on PlanRouteScreen — a route the user just found
+/// (Safest Itinerary or Direct Route) rather than a past shared activity.
+/// Both are simply forwarded through to RecordScreen once a subtype is
+/// picked, exactly like the existing "Track this Route" flow from
+/// routes_screen.dart does for a previously-recorded activity.
 class SubtypeSelectionScreen extends StatelessWidget {
   final ActivityType activityType;
+  final List<GpsPoint>? referenceRoute;
+  final String? referenceRouteLabel;
 
-  const SubtypeSelectionScreen({super.key, required this.activityType});
+  const SubtypeSelectionScreen({
+    super.key,
+    required this.activityType,
+    this.referenceRoute,
+    this.referenceRouteLabel,
+  });
 
   bool get _isCycling => activityType == ActivityType.ride;
   List<String> get _subtypes => _isCycling ? _cyclingSubtypes : _runningSubtypes;
@@ -41,7 +55,12 @@ class SubtypeSelectionScreen extends StatelessWidget {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => RecordScreen(activityType: activityType, subtype: subtype),
+        builder: (_) => RecordScreen(
+          activityType: activityType,
+          subtype: subtype,
+          referenceRoute: referenceRoute,
+          referenceRouteLabel: referenceRouteLabel,
+        ),
       ),
     );
   }

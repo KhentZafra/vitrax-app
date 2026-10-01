@@ -1,4 +1,6 @@
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -7,8 +9,10 @@ import '../models/achievement.dart';
 import '../models/activity.dart';
 import '../providers/activity_provider.dart';
 import '../services/achievement_service.dart';
+import '../services/avatar_service.dart';
 import '../services/community_impact_service.dart';
 import '../widgets/route_nav_icon.dart';
+import '../widgets/user_avatar.dart';
 import 'activity_detail_screen.dart';
 import 'all_activities_screen.dart';
 import 'community_feed_screen.dart';
@@ -42,6 +46,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _name = '';
   String _email = '';
   String? _memberSince;
+  String? _avatarUrl;
+  bool _isUploadingAvatar = false;
   CommunityImpactStats? _stats;
   bool _isLoading = true;
 
@@ -61,10 +67,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final profile = await _supabase.from('profiles').select('first_name, last_name').eq('id', user.id).maybeSingle();
+      final profile = await _supabase.from('profiles').select('first_name, last_name, avatar_url').eq('id', user.id).maybeSingle();
       final first = profile?['first_name'] as String? ?? '';
       final last = profile?['last_name'] as String? ?? '';
       _name = ('$first $last').trim();
+      _avatarUrl = profile?['avatar_url'] as String?;
     } catch (_) {
       _name = '';
     }
@@ -111,9 +118,82 @@ class _ProfileScreenState extends State<ProfileScreen> {
     Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
   }
 
-  void _notImplemented(String label) {
+  /// Camera/gallery choice for a new profile photo — same bottom-sheet
+  /// shape and wording style as the composer's own photo picker in
+  /// community_feed_screen.dart, so photo-picking feels consistent
+  /// across the app.
+  void _changeAvatar() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xff1a1a1a),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined, color: Colors.white),
+              title: const Text('Take a photo', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                _pickAndUploadAvatar(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined, color: Colors.white),
+              title: const Text('Choose from gallery', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                _pickAndUploadAvatar(ImageSource.gallery);
+              },
+            ),
+            if (_avatarUrl != null)
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: Colors.red),
+                title: const Text('Remove photo', style: TextStyle(color: Colors.red)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _removeAvatar();
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickAndUploadAvatar(ImageSource source) async {
+    final file = await AvatarService.pickAvatar(source: source);
+    if (file == null || !mounted) return;
+
+    setState(() => _isUploadingAvatar = true);
+    final url = await AvatarService.uploadAvatar(file);
+    if (!mounted) return;
+
+    setState(() {
+      _isUploadingAvatar = false;
+      if (url != null) _avatarUrl = url;
+    });
+
     ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$label isn\'t available yet.')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(url != null ? 'Profile photo updated.' : "Couldn't upload your photo. Try again.")),
+    );
+  }
+
+  Future<void> _removeAvatar() async {
+    setState(() => _isUploadingAvatar = true);
+    final success = await AvatarService.removeAvatar();
+    if (!mounted) return;
+
+    setState(() {
+      _isUploadingAvatar = false;
+      if (success) _avatarUrl = null;
+    });
+
+    if (!success) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't remove your photo. Try again.")));
+    }
   }
 
   void _showSettingsSheet() {
@@ -256,17 +336,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
       children: [
         Stack(
           children: [
-            Container(
-              width: 76,
-              height: 76,
-              decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.blue.withValues(alpha: .15)),
-              child: const Icon(Icons.person, color: Colors.blue, size: 36),
+            UserAvatar(
+              avatarUrl: _avatarUrl,
+              radius: 38,
+              backgroundColor: Colors.blue.withValues(alpha: .15),
+              iconColor: Colors.blue,
             ),
+            if (_isUploadingAvatar)
+              Positioned.fill(
+                child: Container(
+                  decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.black54),
+                  child: const Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))),
+                ),
+              ),
             Positioned(
               right: 0,
               bottom: 0,
               child: InkWell(
-                onTap: () => _notImplemented('Profile photos'),
+                onTap: _isUploadingAvatar ? null : _changeAvatar,
                 customBorder: const CircleBorder(),
                 child: Container(
                   padding: const EdgeInsets.all(6),

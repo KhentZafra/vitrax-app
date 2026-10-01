@@ -35,7 +35,29 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() {
       isConnected = connected;
     });
-    
+  }
+
+  Future<void> _resendConfirmationEmail() async {
+    try {
+      await supabase.auth.resend(
+        type: OtpType.signup,
+        email: emailController.text.trim(),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Confirmation email sent, check your inbox.'),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Couldn't resend the email. Try again shortly."),
+        ),
+      );
+    }
   }
 
   Future<void> signIn() async {
@@ -89,6 +111,19 @@ class _LoginScreenState extends State<LoginScreen> {
           passwordError = "Incorrect email or password.";
         } else if (message.contains("invalid email")) {
           emailError = "Please enter a valid email address.";
+        } else if (message.contains("not confirmed")) {
+          emailError = "Please confirm your email first, check your inbox.";
+          ScaffoldMessenger.of(context).clearSnackBars();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text("Your email isn't confirmed yet."),
+              action: SnackBarAction(
+                label: 'Resend',
+                onPressed: _resendConfirmationEmail,
+              ),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
         } else {
           passwordError = e.message;
         }

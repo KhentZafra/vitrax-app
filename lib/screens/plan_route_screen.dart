@@ -9,6 +9,7 @@ import '../models/hazard_cluster.dart';
 import '../models/hazard_report.dart';
 import '../services/directions_service.dart';
 import '../services/hazard_service.dart';
+import 'subtype_selection_screen.dart';
 
 /// Plan a route from your current location to a tapped destination,
 /// with a toggle between "Direct Route" (fastest/shortest, ignores
@@ -142,6 +143,36 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
         ),
       );
     }
+  }
+
+  /// Hands the just-found route off to RecordScreen as a fixed guide
+  /// line (the same green "reference route" mechanism already used by
+  /// "Track this Route" on a past shared activity — see
+  /// routes_screen.dart / record_screen.dart). Goes through
+  /// SubtypeSelectionScreen first so this activity still gets a proper
+  /// subtype, exactly like a normal recording would.
+  ///
+  /// GpsPoint requires a timestamp field (it's built for *recorded* GPS
+  /// fixes), but a freshly-planned route has no real fix times — the
+  /// polyline is all RecordScreen actually reads from it, so stamping
+  /// every point with "now" is harmless filler, not meaningful data.
+  void _trackThisRoute() {
+    final route = _route;
+    if (route == null) return;
+
+    final now = DateTime.now();
+    final referenceRoute = route.points.map((p) => GpsPoint(lat: p.latitude, lng: p.longitude, timestamp: now)).toList();
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SubtypeSelectionScreen(
+          activityType: widget.activityType,
+          referenceRoute: referenceRoute,
+          referenceRouteLabel: _safest ? 'your Safest Itinerary' : 'your Direct Route',
+        ),
+      ),
+    );
   }
 
   String _formatDistance(double meters) {
@@ -298,20 +329,41 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
                     ),
                     const SizedBox(height: 14),
                   ],
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: (_start != null && _destination != null && !_isFindingRoute) ? _findRoute : null,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blueAccent,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: (_start != null && _destination != null && !_isFindingRoute) ? _findRoute : null,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blueAccent,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          child: _isFindingRoute
+                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                              : const Text('Find Route', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
                       ),
-                      child: _isFindingRoute
-                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Text('Find Route', style: TextStyle(fontWeight: FontWeight.bold)),
-                    ),
+                      // Only shows up once a route has actually been
+                      // found — nothing to track before that.
+                      if (_route != null) ...[
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _trackThisRoute,
+                            icon: const Icon(Icons.navigation_outlined, size: 18),
+                            label: const Text('Track', style: TextStyle(fontWeight: FontWeight.bold)),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.greenAccent,
+                              side: const BorderSide(color: Colors.greenAccent),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ],
               ),

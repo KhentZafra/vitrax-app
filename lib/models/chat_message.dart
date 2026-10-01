@@ -34,6 +34,7 @@ class ChatConversation {
   final String id;
   final String otherUserId;
   final String otherUserName;
+  final String? otherUserAvatarUrl;
   final String? lastMessageBody;
   final DateTime? lastMessageAt;
   // True only when the most recent message is from the OTHER person and
@@ -45,6 +46,7 @@ class ChatConversation {
     required this.id,
     required this.otherUserId,
     required this.otherUserName,
+    this.otherUserAvatarUrl,
     this.lastMessageBody,
     this.lastMessageAt,
     this.isUnread = false,

@@ -14,6 +14,7 @@ import '../services/community_impact_service.dart';
 import '../services/hazard_service.dart';
 import '../services/route_service.dart';
 import '../widgets/route_nav_icon.dart';
+import '../widgets/user_avatar.dart';
 import 'placeholder_screen.dart';
 import 'community_feed_screen.dart';
 import 'profile_screen.dart';
@@ -650,11 +651,7 @@ class _RouteCard extends StatelessWidget {
               const SizedBox(height: 14),
               Row(
                 children: [
-                  CircleAvatar(
-                    radius: 13,
-                    backgroundColor: const Color(0xff222222),
-                    child: Icon(Icons.person, size: 15, color: Colors.grey.shade400),
-                  ),
+                  UserAvatar(avatarUrl: route.sharerAvatarUrl, radius: 13, iconColor: Colors.grey.shade400),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(

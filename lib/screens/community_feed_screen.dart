@@ -23,6 +23,7 @@ import 'chat_thread_screen.dart';
 import 'profile_screen.dart';
 import '../services/photo_upload_service.dart';
 import '../widgets/route_nav_icon.dart';
+import '../widgets/user_avatar.dart';
 import 'routes_screen.dart';
 
 /// Community feed — two ways to post: share one of your recorded
@@ -44,6 +45,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
 
   List<FeedItem> _items = [];
   bool _isLoading = true;
+  String? _myAvatarUrl;
 
   @override
   void initState() {
@@ -51,6 +53,22 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
     context.read<ActivityProvider>().loadActivities();
     context.read<ChatUnreadProvider>().refresh();
     _load();
+    _loadMyAvatar();
+  }
+
+  /// Just for the composer bar's own avatar at the top of the feed —
+  /// every other avatar on this screen (post authors) comes through
+  /// FeedItem.sharerAvatarUrl from the feed query itself.
+  Future<void> _loadMyAvatar() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+    try {
+      final profile = await Supabase.instance.client.from('profiles').select('avatar_url').eq('id', user.id).maybeSingle();
+      if (!mounted) return;
+      setState(() => _myAvatarUrl = profile?['avatar_url'] as String?);
+    } catch (_) {
+      // Non-critical — the composer bar just keeps its placeholder icon.
+    }
   }
 
   @override
@@ -359,7 +377,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
         decoration: BoxDecoration(color: const Color(0xff111111), borderRadius: BorderRadius.circular(30), border: Border.all(color: Colors.white10)),
         child: Row(
           children: [
-            CircleAvatar(radius: 18, backgroundColor: const Color(0xff222222), child: const Icon(Icons.person, color: Colors.grey, size: 20)),
+            UserAvatar(avatarUrl: _myAvatarUrl, radius: 18),
             const SizedBox(width: 12),
             const Expanded(child: Text('Share your activity, a photo, or a video…', style: TextStyle(color: Colors.blue, fontSize: 14))),
             const Icon(Icons.add_circle_outline, color: Colors.white70),
@@ -923,7 +941,7 @@ class _FeedItemCard extends StatelessWidget {
                 InkWell(
                   onTap: () => _openChat(context),
                   borderRadius: BorderRadius.circular(20),
-                  child: CircleAvatar(radius: 20, backgroundColor: const Color(0xff222222), child: const Icon(Icons.person, color: Colors.grey, size: 22)),
+                  child: UserAvatar(avatarUrl: item.sharerAvatarUrl, radius: 20),
                 ),
                 const SizedBox(width: 12),
                 Expanded(

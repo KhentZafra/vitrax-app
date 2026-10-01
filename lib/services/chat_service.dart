@@ -52,7 +52,7 @@ class ChatService {
 
       final otherParticipantRows = await _supabase
           .from('conversation_participants')
-          .select('conversation_id, user_id, profiles(first_name, last_name)')
+          .select('conversation_id, user_id, profiles(first_name, last_name, avatar_url)')
           .inFilter('conversation_id', conversationIds)
           .neq('user_id', currentUserId);
 
@@ -97,6 +97,7 @@ class ChatService {
           id: id,
           otherUserId: other['user_id'] as String? ?? '',
           otherUserName: name.isEmpty ? 'A Vitrax user' : name,
+          otherUserAvatarUrl: profile?['avatar_url'] as String?,
           lastMessageBody: lastMessage?['body'] as String?,
           lastMessageAt: lastMessageAt,
           isUnread: isUnread,

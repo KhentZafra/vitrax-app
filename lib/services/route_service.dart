@@ -12,7 +12,7 @@ class RouteService {
     try {
       final activityRows = await _supabase
           .from('activities')
-          .select('*, profiles(first_name, last_name)')
+          .select('*, profiles(first_name, last_name, avatar_url)')
           .eq('shared', true)
           .order('created_at', ascending: false);
 

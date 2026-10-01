@@ -12,6 +12,7 @@ import '../models/activity.dart';
 import '../models/challenge.dart';
 import '../providers/activity_provider.dart';
 import '../services/challenge_service.dart';
+import '../widgets/user_avatar.dart';
 
 class ChallengeDetailScreen extends StatefulWidget {
   final String challengeId;
@@ -449,7 +450,15 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                       else if (_winner == null)
                         Text('No one reached the target, no prize awarded this time.', style: TextStyle(color: Colors.grey.shade400, fontSize: 12.5))
                       else ...[
-                        Text('${_winner!.name} won with ${_winnerResultLabel(_winner!, c)}!', style: TextStyle(color: Colors.grey.shade300, fontSize: 13)),
+                        Row(
+                          children: [
+                            UserAvatar(avatarUrl: _winner!.avatarUrl, radius: 12),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text('${_winner!.name} won with ${_winnerResultLabel(_winner!, c)}!', style: TextStyle(color: Colors.grey.shade300, fontSize: 13)),
+                            ),
+                          ],
+                        ),
                         const SizedBox(height: 12),
 
                         // Winner, hasn't uploaded QR yet
@@ -747,6 +756,8 @@ class _TimeEntryRow extends StatelessWidget {
                 : Text('#$rank', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade500, fontSize: 13, fontWeight: FontWeight.w700)),
           ),
           const SizedBox(width: 10),
+          UserAvatar(avatarUrl: entry.avatarUrl, radius: 14),
+          const SizedBox(width: 10),
           Expanded(
             child: Row(
               children: [
@@ -831,6 +842,8 @@ class _StandingRow extends StatelessWidget {
                 ? Icon(Icons.emoji_events, color: medal, size: 20)
                 : Text('#$rank', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade500, fontSize: 13, fontWeight: FontWeight.w700)),
           ),
+          const SizedBox(width: 10),
+          UserAvatar(avatarUrl: standing.avatarUrl, radius: 14),
           const SizedBox(width: 10),
           Expanded(
             child: Column(

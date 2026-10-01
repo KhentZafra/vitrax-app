@@ -193,6 +193,7 @@ class Challenge {
 class ChallengeWinner {
   final String userId;
   final String name;
+  final String? avatarUrl;
   final double progress;
   final String? gcashQrUrl;
   final bool prizePaid;
@@ -200,6 +201,7 @@ class ChallengeWinner {
   ChallengeWinner({
     required this.userId,
     required this.name,
+    this.avatarUrl,
     required this.progress,
     this.gcashQrUrl,
     required this.prizePaid,
