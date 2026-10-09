@@ -48,6 +48,7 @@ class CommunityFeedService {
     final ids = activityRows.map((r) => r['id'] as String).toList();
     final likeRows = await _supabase.from('activity_likes').select('activity_id, user_id').inFilter('activity_id', ids);
 
+    final commentCounts = await _fetchCommentCounts('activity', ids);
     final counts = <String, int>{};
     final likedByMe = <String>{};
     for (final row in (likeRows as List).cast<Map<String, dynamic>>()) {
@@ -61,8 +62,43 @@ class CommunityFeedService {
               row,
               likeCount: counts[row['id']] ?? 0,
               likedByMe: likedByMe.contains(row['id']),
+              commentCount: commentCounts[row['id']] ?? 0,
             ))
         .toList();
+  }
+
+  /// comment count per post id. Returns {} (instead of throwing) if the
+  /// comments table isn't set up yet, so the feed still loads.
+  static Future<Map<String, int>> _fetchCommentCounts(String kind, List<String> ids) async {
+    try {
+      final rows = await _supabase.from('feed_comments').select('post_id').eq('post_kind', kind).inFilter('post_id', ids);
+      final counts = <String, int>{};
+      for (final row in (rows as List).cast<Map<String, dynamic>>()) {
+        final id = row['post_id'] as String;
+        counts[id] = (counts[id] ?? 0) + 1;
+      }
+      return counts;
+    } catch (e) {
+      // ignore: avoid_print
+      print('CommunityFeedService: comment counts failed: $e');
+      return {};
+    }
+  }
+
+  /// Display names of the original posters of reshared posts.
+  static Future<Map<String, String>> _fetchProfileNames(Set<String> userIds) async {
+    if (userIds.isEmpty) return {};
+    try {
+      final rows = await _supabase.from('profiles').select('id, first_name, last_name').inFilter('id', userIds.toList());
+      final names = <String, String>{};
+      for (final row in (rows as List).cast<Map<String, dynamic>>()) {
+        final name = ('${row['first_name'] ?? ''} ${row['last_name'] ?? ''}').trim();
+        names[row['id'] as String] = name.isEmpty ? 'A Vitrax user' : name;
+      }
+      return names;
+    } catch (_) {
+      return {};
+    }
   }
 
   static Future<List<FeedItem>> _fetchStandalonePosts(String? currentUserId) async {
@@ -77,6 +113,12 @@ class CommunityFeedService {
     final ids = postRows.map((r) => r['id'] as String).toList();
     final likeRows = await _supabase.from('post_likes').select('post_id, user_id').inFilter('post_id', ids);
 
+    final commentCounts = await _fetchCommentCounts('post', ids);
+    final originalIds = <String>{
+      for (final r in postRows)
+        if (r['original_user_id'] != null) r['original_user_id'] as String,
+    };
+    final originalNames = await _fetchProfileNames(originalIds);
     final counts = <String, int>{};
     final likedByMe = <String>{};
     for (final row in (likeRows as List).cast<Map<String, dynamic>>()) {
@@ -90,8 +132,56 @@ class CommunityFeedService {
               row,
               likeCount: counts[row['id']] ?? 0,
               likedByMe: likedByMe.contains(row['id']),
+              commentCount: commentCounts[row['id']] ?? 0,
+              originalName: originalNames[row['original_user_id']],
             ))
         .toList();
+  }
+
+  /// Reshares [item] to the community feed as a new post by the current
+  /// user, crediting the ORIGINAL poster (even when [item] is itself a
+  /// reshare). [note] is the resharer's optional own caption.
+  static Future<bool> reshare(FeedItem item, {String? note}) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return false;
+
+    final String originalKind;
+    final String originalId;
+    final String originalUserId;
+    final String? originalCaption;
+    if (item.isReshare) {
+      originalKind = item.originalKind ?? 'post';
+      originalId = item.originalId ?? item.id;
+      originalUserId = item.originalUserId!;
+      originalCaption = item.originalCaption;
+    } else {
+      originalKind = item.kind == FeedItemKind.activityShare ? 'activity' : 'post';
+      originalId = item.id;
+      originalUserId = item.posterUserId;
+      final a = item.activity;
+      final fallback = a != null ? '${a.title} · ${a.distanceKm.toStringAsFixed(1)} km' : null;
+      originalCaption = (item.caption ?? '').trim().isNotEmpty ? item.caption : fallback;
+    }
+
+    if (originalUserId == user.id) return false;
+
+    try {
+      await _supabase.from('community_posts').insert({
+        'user_id': user.id,
+        'media_url': item.mediaUrl,
+        'media_type': item.mediaType == null ? null : (item.mediaType == FeedMediaType.photo ? 'photo' : 'video'),
+        'caption': (note ?? '').trim().isEmpty ? null : note!.trim(),
+        'original_kind': originalKind,
+        'original_id': originalId,
+        'original_user_id': originalUserId,
+        'original_caption': originalCaption,
+      });
+      return true;
+    } catch (e) {
+      // ignore: avoid_print
+      print('CommunityFeedService.reshare failed: $e');
+      return false;
+    }
   }
 
   /// Toggles a like on either an activity-share or a standalone post.

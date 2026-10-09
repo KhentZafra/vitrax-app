@@ -291,19 +291,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
       final response = await supabase.auth.signUp(
         email: emailController.text.trim(),
         password: passwordController.text,
+        data: {
+          'first_name': firstNameController.text.trim(),
+          'last_name': lastNameController.text.trim(),
+          'primary_activity': selectedActivity == 0 ? 'Cyclist' : 'Runner',
+        },
       );
 
       final user = response.user;
 
       if (user != null) {
-        await supabase.from('profiles').insert({
-          'id': user.id,
-          'first_name': firstNameController.text.trim(),
-          'last_name': lastNameController.text.trim(),
-          'email': emailController.text.trim(),
-          'primary_activity': selectedActivity == 0 ? 'Cyclist' : 'Runner',
-        });
-
+        // The `profiles` row itself is created automatically by a
+        // database trigger (see supabase/012_auto_create_profile.sql)
+        // that reads the metadata passed above. It is NOT inserted here
+        // on the client: signUp() does not hand this client an
+        // authenticated session while email confirmation is required,
+        // so an insert attempted at this point runs unauthenticated and
+        // gets rejected by the profiles table's row-level security
+        // policy (error 42501).
         if (mounted) {
           await showDialog<void>(
             context: context,

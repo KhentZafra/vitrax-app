@@ -35,6 +35,17 @@ class FeedItem {
   final int likeCount;
   final bool likedByMe;
   final Activity? activity; // non-null only when kind == activityShare
+  final int commentCount;
+
+  // Reshare info: non-null originalUserId means this card is a reshare of
+  // someone else's post, and credits that original poster.
+  final String? originalKind; // 'activity' | 'post'
+  final String? originalId;
+  final String? originalUserId;
+  final String? originalName;
+  final String? originalCaption;
+
+  bool get isReshare => originalUserId != null;
 
   FeedItem({
     required this.id,
@@ -49,9 +60,15 @@ class FeedItem {
     required this.likeCount,
     required this.likedByMe,
     this.activity,
+    this.commentCount = 0,
+    this.originalKind,
+    this.originalId,
+    this.originalUserId,
+    this.originalName,
+    this.originalCaption,
   });
 
-  factory FeedItem.fromActivityRow(Map<String, dynamic> row, {required int likeCount, required bool likedByMe}) {
+  factory FeedItem.fromActivityRow(Map<String, dynamic> row, {required int likeCount, required bool likedByMe, int commentCount = 0}) {
     final activity = Activity.fromMap(row);
     final profile = row['profiles'] as Map<String, dynamic>?;
     final first = profile?['first_name'] as String? ?? '';
@@ -71,10 +88,11 @@ class FeedItem {
       likeCount: likeCount,
       likedByMe: likedByMe,
       activity: activity,
+      commentCount: commentCount,
     );
   }
 
-  factory FeedItem.fromPostRow(Map<String, dynamic> row, {required int likeCount, required bool likedByMe}) {
+  factory FeedItem.fromPostRow(Map<String, dynamic> row, {required int likeCount, required bool likedByMe, int commentCount = 0, String? originalName}) {
     final profile = row['profiles'] as Map<String, dynamic>?;
     final first = profile?['first_name'] as String? ?? '';
     final last = profile?['last_name'] as String? ?? '';
@@ -87,15 +105,21 @@ class FeedItem {
       sharerName: name.isEmpty ? 'A Vitrax user' : name,
       sharerAvatarUrl: profile?['avatar_url'] as String?,
       caption: row['caption'] as String?,
-      mediaUrl: row['media_url'] as String,
+      mediaUrl: row['media_url'] as String?,
       mediaType: _mediaTypeFromString(row['media_type'] as String?),
       createdAt: DateTime.parse(row['created_at'] as String),
       likeCount: likeCount,
       likedByMe: likedByMe,
+      commentCount: commentCount,
+      originalKind: row['original_kind'] as String?,
+      originalId: row['original_id'] as String?,
+      originalUserId: row['original_user_id'] as String?,
+      originalName: originalName,
+      originalCaption: row['original_caption'] as String?,
     );
   }
 
-  FeedItem copyWith({int? likeCount, bool? likedByMe}) {
+  FeedItem copyWith({int? likeCount, bool? likedByMe, int? commentCount}) {
     return FeedItem(
       id: id,
       kind: kind,
@@ -109,6 +133,12 @@ class FeedItem {
       likeCount: likeCount ?? this.likeCount,
       likedByMe: likedByMe ?? this.likedByMe,
       activity: activity,
+      commentCount: commentCount ?? this.commentCount,
+      originalKind: originalKind,
+      originalId: originalId,
+      originalUserId: originalUserId,
+      originalName: originalName,
+      originalCaption: originalCaption,
     );
   }
 }

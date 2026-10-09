@@ -15,6 +15,7 @@ import '../services/community_impact_service.dart';
 import '../services/notification_service.dart';
 import '../services/tts_service.dart';
 import '../services/voice_command_service.dart';
+import '../widgets/map_pin_marker.dart';
 import '../widgets/report_hazard_sheet.dart';
 import 'create_challenge_screen.dart';
 
@@ -41,12 +42,20 @@ class RecordScreen extends StatefulWidget {
   final List<GpsPoint>? referenceRoute;
   final String? referenceRouteLabel;
 
+  // Trail color for the reference line above — green for a Safest
+  // Itinerary, blue for a Direct Route (see plan_route_screen.dart).
+  // Defaults to green when unset, which keeps the original look for
+  // "Track this Route" on a past shared activity (routes_screen.dart),
+  // which isn't a safest/direct choice at all.
+  final Color? referenceRouteColor;
+
   const RecordScreen({
     super.key,
     required this.activityType,
     required this.subtype,
     this.referenceRoute,
     this.referenceRouteLabel,
+    this.referenceRouteColor,
   });
 
   @override
@@ -100,6 +109,20 @@ class _RecordScreenState extends State<RecordScreen> {
   bool _proximityBusy = false;
   static const _proximityTriggerMeters = 40.0;
 
+  // ---- Early "heads-up" awareness (stage 1) ----
+  // Stage 1 (this): a spoken + on-screen caution when a community hazard
+  // is within _awarenessMeters of you, or is visible in the current map
+  // view. Informational only — no question is asked.
+  // Stage 2 (_checkHazardProximity's prompt): only once you are inside the
+  // hazard's own radius does the app ask "is it still there? yes / no".
+  static const _awarenessMeters = 5000.0;
+  static const _awarenessCooldown = Duration(seconds: 20);
+  static const _hazardReloadDistanceMeters = 2000.0;
+  final Set<String> _sessionWarnedHazardKeys = {};
+  DateTime? _lastAwarenessAt;
+  LatLng? _lastHazardLoadCenter;
+  bool _hazardReloadInFlight = false;
+
   // Community hazards already shared by other users, clustered for display.
   List<HazardCluster> _communityClusters = [];
 
@@ -148,6 +171,7 @@ class _RecordScreenState extends State<RecordScreen> {
           .map((p) => LatLng(p.lat, p.lng))
           .toList();
   bool get _isRetracing => _referenceLatLngs.length > 1;
+  Color get _referenceTrailColor => widget.referenceRouteColor ?? Colors.greenAccent;
 
   @override
   void initState() {
@@ -518,6 +542,7 @@ class _RecordScreenState extends State<RecordScreen> {
   /// reports that are close together into single pins with a radius.
   Future<void> _loadCommunityHazards(LatLng near) async {
     const searchRadiusMeters = 5000.0;
+    _lastHazardLoadCenter = near;
     final shared = await HazardService.fetchShared();
     if (!mounted) return;
 
@@ -580,6 +605,8 @@ class _RecordScreenState extends State<RecordScreen> {
     if (_pendingUndo != null)
       return; // don't collide with the just-reported-hazard banner
 
+    _maybeReloadHazards(current);
+
     for (final cluster in _communityClusters) {
       final distance = Geolocator.distanceBetween(
         current.latitude,
@@ -587,7 +614,13 @@ class _RecordScreenState extends State<RecordScreen> {
         cluster.center.latitude,
         cluster.center.longitude,
       );
-      if (distance > _proximityTriggerMeters) continue;
+      // "Inside the radius" = within the hazard's own circle (never
+      // tighter than _proximityTriggerMeters, so GPS jitter on a tiny
+      // single-report pin still triggers it).
+      final triggerMeters = cluster.radiusMeters > _proximityTriggerMeters
+          ? cluster.radiusMeters
+          : _proximityTriggerMeters;
+      if (distance > triggerMeters) continue;
 
       // Most recent report in the cluster — matches what the manual
       // sheet shows first, and is the single report this prompt acts on.
@@ -609,9 +642,8 @@ class _RecordScreenState extends State<RecordScreen> {
       // as the stillness alert above — the banner only renders while
       // this screen is on top and visible.
       NotificationService.showHazardNearby(candidate.type.label.toLowerCase());
-      final roundedDistance = (distance / 10).round() * 10;
       TtsService.speakThen(
-        'Caution: ${candidate.type.label.toLowerCase()} reported $roundedDistance meters ahead. Is it still here? Say yes or no.',
+        "You're at a reported ${candidate.type.label.toLowerCase()}. Is it still there? Say yes or no.",
         () => VoiceCommandService.listenForYesNo(
           onYes: () => _respondToProximityPrompt(stillHere: true),
           onNo: () => _respondToProximityPrompt(stillHere: false),
@@ -619,6 +651,96 @@ class _RecordScreenState extends State<RecordScreen> {
       );
       return; // one at a time
     }
+
+    // No "still there?" prompt this fix -> safe to give the early heads-up
+    // without talking over a question.
+    _maybeWarnAboutNearbyHazard(current);
+  }
+
+  /// Re-fetches community hazards around the current position once the
+  /// user has moved far from where they were last loaded, so the 5 km
+  /// awareness bubble follows them on long rides instead of staying
+  /// anchored to the start point.
+  void _maybeReloadHazards(LatLng current) {
+    final last = _lastHazardLoadCenter;
+    if (last == null || _hazardReloadInFlight) return;
+    final moved = Geolocator.distanceBetween(
+      last.latitude,
+      last.longitude,
+      current.latitude,
+      current.longitude,
+    );
+    if (moved < _hazardReloadDistanceMeters) return;
+    _hazardReloadInFlight = true;
+    _loadCommunityHazards(current).whenComplete(() {
+      _hazardReloadInFlight = false;
+    });
+  }
+
+  String _awarenessDistanceLabel(double meters) {
+    if (meters < 1000) return '${(meters / 50).round() * 50} meters';
+    final km = meters / 1000;
+    final text = km >= 10 ? km.round().toString() : km.toStringAsFixed(1);
+    return '$text kilometers';
+  }
+
+  /// Stage 1: early heads-up. Warns once per hazard per recording session
+  /// when it is within [_awarenessMeters] or visible in the map view,
+  /// nearest first, at most one announcement per [_awarenessCooldown].
+  void _maybeWarnAboutNearbyHazard(LatLng current) {
+    final now = DateTime.now();
+    final last = _lastAwarenessAt;
+    if (last != null && now.difference(last) < _awarenessCooldown) return;
+
+    LatLngBounds? visible;
+    try {
+      visible = _mapController.camera.visibleBounds;
+    } catch (_) {
+      visible = null; // map not laid out yet
+    }
+
+    HazardCluster? best;
+    double bestDistance = double.infinity;
+    for (final cluster in _communityClusters) {
+      final key =
+          '${cluster.type.name}:${cluster.center.latitude.toStringAsFixed(5)},${cluster.center.longitude.toStringAsFixed(5)}';
+      if (_sessionWarnedHazardKeys.contains(key)) continue;
+
+      final distance = Geolocator.distanceBetween(
+        current.latitude,
+        current.longitude,
+        cluster.center.latitude,
+        cluster.center.longitude,
+      );
+
+      // Already inside the hazard's radius -> stage 2 asks the question
+      // instead; don't also give a "heads-up" for it.
+      final inside = cluster.radiusMeters > _proximityTriggerMeters
+          ? cluster.radiusMeters
+          : _proximityTriggerMeters;
+      if (distance <= inside) {
+        _sessionWarnedHazardKeys.add(key);
+        continue;
+      }
+
+      final inView = visible?.contains(cluster.center) ?? false;
+      if (distance > _awarenessMeters && !inView) continue;
+      if (distance < bestDistance) {
+        best = cluster;
+        bestDistance = distance;
+      }
+    }
+    if (best == null) return;
+
+    final key =
+        '${best.type.name}:${best.center.latitude.toStringAsFixed(5)},${best.center.longitude.toStringAsFixed(5)}';
+    _sessionWarnedHazardKeys.add(key);
+    _lastAwarenessAt = now;
+
+    final label = best.type.label.toLowerCase();
+    final distanceText = _awarenessDistanceLabel(bestDistance);
+    _showSnack('Caution: $label reported $distanceText away.');
+    TtsService.speak('Caution: $label reported $distanceText away.');
   }
 
   Future<void> _respondToProximityPrompt({required bool stillHere}) async {
@@ -916,6 +1038,9 @@ class _RecordScreenState extends State<RecordScreen> {
       _pendingUndo = null;
       _communityClusters = [];
       _sessionPromptedHazardIds.clear();
+      _sessionWarnedHazardKeys.clear();
+      _lastAwarenessAt = null;
+      _lastHazardLoadCenter = null;
       _proximityPrompt = null;
       // Deliberately NOT resetting _currentLatLng/_hasCenteredMap — keeps
       // the map showing your last known position instead of jumping
@@ -1029,9 +1154,9 @@ class _RecordScreenState extends State<RecordScreen> {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.near_me,
-                        color: Colors.greenAccent,
+                        color: _referenceTrailColor,
                         size: 14,
                       ),
                       const SizedBox(width: 6),
@@ -1039,8 +1164,8 @@ class _RecordScreenState extends State<RecordScreen> {
                         child: Text(
                           'Retracing ${widget.referenceRouteLabel ?? "a shared route"}',
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.greenAccent,
+                          style: TextStyle(
+                            color: _referenceTrailColor,
                             fontSize: 13,
                           ),
                         ),
@@ -1163,14 +1288,15 @@ class _RecordScreenState extends State<RecordScreen> {
                   if (_isRetracing)
                     PolylineLayer(
                       // Distinguished from your own live track by color
-                      // alone (green vs. blue) rather than a dash pattern —
-                      // keeps this compatible regardless of exact
-                      // flutter_map version, since dashed-line support
-                      // varies across releases.
+                      // alone (green/blue reference vs. blue live track)
+                      // rather than a dash pattern — keeps this
+                      // compatible regardless of exact flutter_map
+                      // version, since dashed-line support varies
+                      // across releases.
                       polylines: [
                         Polyline(
                           points: _referenceLatLngs,
-                          color: Colors.greenAccent.withValues(alpha: .85),
+                          color: _referenceTrailColor.withValues(alpha: .85),
                           strokeWidth: 5,
                         ),
                       ],
@@ -1185,27 +1311,17 @@ class _RecordScreenState extends State<RecordScreen> {
                           child: Container(
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: Colors.greenAccent,
+                              color: _referenceTrailColor,
                               border: Border.all(color: Colors.white, width: 2),
                             ),
                           ),
                         ),
                         Marker(
                           point: _referenceLatLngs.last,
-                          width: 22,
-                          height: 22,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.greenAccent,
-                              border: Border.all(color: Colors.white, width: 2),
-                            ),
-                            child: const Icon(
-                              Icons.flag,
-                              color: Colors.black,
-                              size: 12,
-                            ),
-                          ),
+                          width: 36,
+                          height: 36,
+                          alignment: Alignment.bottomCenter,
+                          child: const MapPinMarker(size: 36),
                         ),
                       ],
                     ),
@@ -1244,13 +1360,7 @@ class _RecordScreenState extends State<RecordScreen> {
                         point: current,
                         width: 26,
                         height: 26,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.blue,
-                            border: Border.all(color: Colors.white, width: 3),
-                          ),
-                        ),
+                        child: const UserLocationDot(size: 26),
                       ),
 
                       // This session's own reports (not yet necessarily shared).
@@ -1401,8 +1511,8 @@ class _RecordScreenState extends State<RecordScreen> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.greenAccent,
+                        style: TextStyle(
+                          color: _referenceTrailColor,
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
                         ),

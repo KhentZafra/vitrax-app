@@ -13,13 +13,16 @@ import '../models/activity.dart';
 import '../models/feed_item.dart';
 import '../providers/activity_provider.dart';
 import '../providers/chat_unread_provider.dart';
-import '../services/chat_service.dart';
 import '../services/community_feed_service.dart';
 import '../services/media_upload_service.dart';
+import '../services/feed_notification_service.dart';
+import '../widgets/feed_comments_sheet.dart';
+import '../widgets/feed_share_sheet.dart';
 import '../widgets/nav_badge.dart';
+import '../widgets/user_actions_sheet.dart';
 import 'challenges_screen.dart';
 import 'chat_list_screen.dart';
-import 'chat_thread_screen.dart';
+import 'feed_notifications_screen.dart';
 import 'profile_screen.dart';
 import '../services/photo_upload_service.dart';
 import '../widgets/route_nav_icon.dart';
@@ -46,6 +49,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   List<FeedItem> _items = [];
   bool _isLoading = true;
   String? _myAvatarUrl;
+  int _notifCount = 0;
 
   @override
   void initState() {
@@ -54,6 +58,21 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
     context.read<ChatUnreadProvider>().refresh();
     _load();
     _loadMyAvatar();
+    _refreshNotifCount();
+  }
+
+  Future<void> _refreshNotifCount() async {
+    final n = await FeedNotificationService.unreadCount();
+    if (!mounted) return;
+    setState(() => _notifCount = n);
+  }
+
+  Future<void> _openNotifications() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => FeedNotificationsScreen(items: _items, onCommentCount: _setCommentCount)),
+    );
+    if (mounted) _refreshNotifCount();
   }
 
   /// Just for the composer bar's own avatar at the top of the feed —
@@ -108,6 +127,12 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
     if (result == null && mounted) {
       setState(() => _items[index] = item);
     }
+  }
+
+  void _setCommentCount(FeedItem item, int count) {
+    final index = _items.indexWhere((p) => p.id == item.id && p.kind == item.kind);
+    if (index == -1 || _items[index].commentCount == count) return;
+    setState(() => _items[index] = _items[index].copyWith(commentCount: count));
   }
 
   Future<void> _openComposerChoice() async {
@@ -277,11 +302,8 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
             child: Text('Community', style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
           ),
           IconButton(
-            onPressed: () {
-              ScaffoldMessenger.of(context).clearSnackBars();
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No new notifications.')));
-            },
-            icon: const Icon(Icons.notifications_none, color: Colors.white),
+            onPressed: _openNotifications,
+            icon: NavBadge(count: _notifCount, child: const Icon(Icons.notifications_none, color: Colors.white)),
             style: IconButton.styleFrom(backgroundColor: const Color(0xff141414), shape: const CircleBorder()),
           ),
           const SizedBox(width: 8),
@@ -361,7 +383,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
             else
               ...(_isLoading
                   ? List.generate(2, (_) => const _PostSkeleton())
-                  : _visibleItems.map((item) => _FeedItemCard(item: item, onLike: () => _toggleLike(item)))),
+                  : _visibleItems.map((item) => _FeedItemCard(item: item, onLike: () => _toggleLike(item), onCommentCount: (n) => _setCommentCount(item, n), onReshared: _load))),
           ],
         ),
       ),
@@ -900,7 +922,9 @@ class _NewPostSheetState extends State<_NewPostSheet> {
 class _FeedItemCard extends StatelessWidget {
   final FeedItem item;
   final VoidCallback onLike;
-  const _FeedItemCard({required this.item, required this.onLike});
+  final ValueChanged<int> onCommentCount;
+  final VoidCallback onReshared;
+  const _FeedItemCard({required this.item, required this.onLike, required this.onCommentCount, required this.onReshared});
 
   String _relativeTime(DateTime date) {
     final diff = DateTime.now().difference(date);
@@ -910,18 +934,15 @@ class _FeedItemCard extends StatelessWidget {
     return DateFormat('MMM d').format(date);
   }
 
-  Future<void> _openChat(BuildContext context) async {
-    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
-    if (currentUserId == null || currentUserId == item.posterUserId) return; // no messaging yourself
-
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Opening chat…'), duration: Duration(seconds: 2)));
-
-    final conversationId = await ChatService.startOrGetConversation(item.posterUserId);
-    if (conversationId == null || !context.mounted) return;
-
-    ScaffoldMessenger.of(context).clearSnackBars();
-    Navigator.push(context, MaterialPageRoute(builder: (_) => ChatThreadScreen(conversationId: conversationId, otherUserId: item.posterUserId, otherUserName: item.sharerName)));
+  /// Tapping a poster's photo or name opens View profile / Message /
+  /// Block / Report (not straight into a chat).
+  void _openUserMenu(BuildContext context) {
+    showUserActionsSheet(
+      context,
+      userId: item.posterUserId,
+      userName: item.sharerName,
+      avatarUrl: item.sharerAvatarUrl,
+    );
   }
 
   @override
@@ -939,18 +960,19 @@ class _FeedItemCard extends StatelessWidget {
             child: Row(
               children: [
                 InkWell(
-                  onTap: () => _openChat(context),
+                  onTap: () => _openUserMenu(context),
                   borderRadius: BorderRadius.circular(20),
                   child: UserAvatar(avatarUrl: item.sharerAvatarUrl, radius: 20),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: InkWell(
-                    onTap: () => _openChat(context),
+                    onTap: () => _openUserMenu(context),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(item.sharerName, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
+                        if (item.isReshare) const Text('Reshared a post', style: TextStyle(color: Colors.blue, fontSize: 13)),
                         if (activity != null) Text('${activity.title} · ${activity.distanceKm.toStringAsFixed(1)} km', style: const TextStyle(color: Colors.blue, fontSize: 13)),
                       ],
                     ),
@@ -960,14 +982,46 @@ class _FeedItemCard extends StatelessWidget {
               ],
             ),
           ),
-          ClipRRect(
-            borderRadius: BorderRadius.zero,
-            child: SizedBox(height: 220, width: double.infinity, child: _buildMedia(activity)),
-          ),
+          if (item.mediaUrl != null || activity != null)
+            ClipRRect(
+              borderRadius: BorderRadius.zero,
+              child: SizedBox(height: 220, width: double.infinity, child: _buildMedia(activity)),
+            ),
           if ((item.caption ?? '').isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
               child: Text(item.caption!, style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.4)),
+            ),
+          if (item.isReshare)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(color: const Color(0xff1a1a1a), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xff2a2a2a))),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    InkWell(
+                      onTap: () => showUserActionsSheet(context, userId: item.originalUserId!, userName: item.originalName ?? 'A Vitrax user'),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.repeat, color: Colors.blue, size: 14),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text('Originally posted by ${item.originalName ?? 'a Vitrax user'}', overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.blue, fontSize: 12, fontWeight: FontWeight.w600)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if ((item.originalCaption ?? '').isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(item.originalCaption!, style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.35)),
+                    ],
+                  ],
+                ),
+              ),
             ),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
@@ -985,18 +1039,12 @@ class _FeedItemCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 24),
                 InkWell(
-                  onTap: () {
-                    ScaffoldMessenger.of(context).clearSnackBars();
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Comments coming soon.')));
-                  },
-                  child: const Row(children: [Icon(Icons.chat_bubble_outline, color: Colors.blue, size: 19), SizedBox(width: 6), Text('0', style: TextStyle(color: Colors.blue, fontSize: 14))]),
+                  onTap: () => showFeedCommentsSheet(context, item: item, onCountChanged: onCommentCount),
+                  child: Row(children: [const Icon(Icons.chat_bubble_outline, color: Colors.blue, size: 19), const SizedBox(width: 6), Text('${item.commentCount}', style: const TextStyle(color: Colors.blue, fontSize: 14))]),
                 ),
                 const SizedBox(width: 24),
                 InkWell(
-                  onTap: () {
-                    ScaffoldMessenger.of(context).clearSnackBars();
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sharing coming soon.')));
-                  },
+                  onTap: () => showFeedShareSheet(context, item: item, onReshared: onReshared),
                   child: const Icon(Icons.share_outlined, color: Colors.blue, size: 19),
                 ),
               ],

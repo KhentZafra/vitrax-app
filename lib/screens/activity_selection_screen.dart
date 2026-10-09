@@ -24,7 +24,23 @@ class _Palette {
 /// there's no internet at all, an offline banner appears and loading
 /// stops gracefully rather than hanging.
 class ActivitySelectionScreen extends StatefulWidget {
-  const ActivitySelectionScreen({super.key});
+  /// Set only when reached from "Track" on PlanRouteScreen — a route the
+  /// user just found (Safest Itinerary or Direct Route) that still needs
+  /// an activity type before recording can start. All three are simply
+  /// forwarded through SubtypeSelectionScreen to RecordScreen once an
+  /// activity (and then a subtype) is picked.
+  final List<GpsPoint>? referenceRoute;
+  final String? referenceRouteLabel;
+  final Color? referenceRouteColor;
+
+  const ActivitySelectionScreen({
+    super.key,
+    this.referenceRoute,
+    this.referenceRouteLabel,
+    this.referenceRouteColor,
+  });
+
+  bool get _isTrackingRoute => referenceRoute != null;
 
   @override
   State<ActivitySelectionScreen> createState() => _ActivitySelectionScreenState();
@@ -32,7 +48,7 @@ class ActivitySelectionScreen extends StatefulWidget {
 
 class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
   final _supabase = Supabase.instance.client;
-  late final StreamSubscription<List<ConnectivityResult>> _connectionSub;
+  StreamSubscription<List<ConnectivityResult>>? _connectionSub;
 
   String? _firstName;
   bool _isLoading = true;
@@ -41,6 +57,13 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget._isTrackingRoute) {
+      // Reached mid-flow from "Track" on a planned route — this isn't
+      // the post-login greeting screen here, so skip the profile-name
+      // load and offline-banner machinery entirely.
+      _isLoading = false;
+      return;
+    }
     _checkInternet();
     _connectionSub =
         Connectivity().onConnectivityChanged.listen((_) => _checkInternet());
@@ -48,7 +71,7 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
 
   @override
   void dispose() {
-    _connectionSub.cancel();
+    _connectionSub?.cancel();
     super.dispose();
   }
 
@@ -97,44 +120,72 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
   void _selectActivity(ActivityType type) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => SubtypeSelectionScreen(activityType: type)),
+      MaterialPageRoute(
+        builder: (_) => SubtypeSelectionScreen(
+          activityType: type,
+          referenceRoute: widget.referenceRoute,
+          referenceRouteLabel: widget.referenceRouteLabel,
+          referenceRouteColor: widget.referenceRouteColor,
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final tracking = widget._isTrackingRoute;
+
     return Scaffold(
       backgroundColor: _Palette.background,
+      appBar: tracking
+          ? AppBar(
+              backgroundColor: _Palette.background,
+              iconTheme: const IconThemeData(color: Colors.white),
+              title: const Text('Track Route', style: TextStyle(color: Colors.white)),
+            )
+          : null,
       body: SafeArea(
         child: Skeletonizer(
           enabled: _isLoading,
           child: RefreshIndicator(
-            onRefresh: _checkInternet,
+            onRefresh: tracking ? () async {} : _checkInternet,
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (!_isConnected) _OfflineBanner(onRetry: _checkInternet),
-                  Text(
-                    'Good Day 👋',
-                    style: TextStyle(color: Colors.grey.shade400, fontSize: 18),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _isLoading ? 'Loading Name' : '${_firstName ?? 'there'}!',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 40,
-                      fontWeight: FontWeight.bold,
+                  if (!tracking && !_isConnected) _OfflineBanner(onRetry: _checkInternet),
+                  if (tracking) ...[
+                    Text(
+                      'Choose an activity',
+                      style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
                     ),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    'What would you like to do today?',
-                    style: TextStyle(color: Colors.grey.shade400, fontSize: 20),
-                  ),
+                    const SizedBox(height: 8),
+                    Text(
+                      "What are you tracking ${widget.referenceRouteLabel ?? 'this route'} as?",
+                      style: TextStyle(color: Colors.grey.shade400, fontSize: 16),
+                    ),
+                  ] else ...[
+                    Text(
+                      'Good Day 👋',
+                      style: TextStyle(color: Colors.grey.shade400, fontSize: 18),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _isLoading ? 'Loading Name' : '${_firstName ?? 'there'}!',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 40,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      'What would you like to do today?',
+                      style: TextStyle(color: Colors.grey.shade400, fontSize: 20),
+                    ),
+                  ],
                   const SizedBox(height: 32),
                   _ActivityCard(
                     title: 'Cycling',
@@ -153,16 +204,18 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
                     icon: Icons.directions_run,
                     onTap: () => _selectActivity(ActivityType.run),
                   ),
-                  const SizedBox(height: 24),
-                  Center(
-                    child: TextButton(
-                      onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false),
-                      child: Text(
-                        'Not today, just browsing',
-                        style: TextStyle(color: Colors.grey.shade500, fontSize: 15, fontWeight: FontWeight.w600),
+                  if (!tracking) ...[
+                    const SizedBox(height: 24),
+                    Center(
+                      child: TextButton(
+                        onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false),
+                        child: Text(
+                          'Not today, just browsing',
+                          style: TextStyle(color: Colors.grey.shade500, fontSize: 15, fontWeight: FontWeight.w600),
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),

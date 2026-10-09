@@ -7,6 +7,7 @@ import 'package:geolocator/geolocator.dart' hide ActivityType;
 import 'package:latlong2/latlong.dart';
 
 import '../models/activity.dart';
+import '../widgets/map_pin_marker.dart';
 
 /// Distance in meters between two points, via the haversine formula.
 /// Kept local (same formula routes_screen.dart already uses for hazard
@@ -192,21 +193,17 @@ class _TrackRouteScreenState extends State<TrackRouteScreen> {
                   if (_referencePoints.length > 1)
                     Marker(
                       point: _referencePoints.last,
-                      width: 26,
-                      height: 26,
-                      child: Container(
-                        decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.blue, border: Border.all(color: Colors.white, width: 2)),
-                        child: const Icon(Icons.flag, color: Colors.white, size: 14),
-                      ),
+                      width: 36,
+                      height: 36,
+                      alignment: Alignment.bottomCenter,
+                      child: const MapPinMarker(size: 36),
                     ),
                   if (_currentLatLng != null)
                     Marker(
                       point: _currentLatLng!,
                       width: 22,
                       height: 22,
-                      child: Container(
-                        decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.orangeAccent, border: Border.all(color: Colors.white, width: 3)),
-                      ),
+                      child: const UserLocationDot(size: 22),
                     ),
                 ],
               ),

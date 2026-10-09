@@ -9,7 +9,8 @@ import '../models/hazard_cluster.dart';
 import '../models/hazard_report.dart';
 import '../services/directions_service.dart';
 import '../services/hazard_service.dart';
-import 'subtype_selection_screen.dart';
+import '../widgets/map_pin_marker.dart';
+import 'activity_selection_screen.dart';
 
 /// Plan a route from your current location to a tapped destination,
 /// with a toggle between "Direct Route" (fastest/shortest, ignores
@@ -146,11 +147,16 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
   }
 
   /// Hands the just-found route off to RecordScreen as a fixed guide
-  /// line (the same green "reference route" mechanism already used by
-  /// "Track this Route" on a past shared activity — see
-  /// routes_screen.dart / record_screen.dart). Goes through
-  /// SubtypeSelectionScreen first so this activity still gets a proper
-  /// subtype, exactly like a normal recording would.
+  /// line (the same "reference route" mechanism already used by "Track
+  /// this Route" on a past shared activity — see routes_screen.dart /
+  /// record_screen.dart), colored green for a Safest Itinerary or blue
+  /// for a Direct Route, matching the colors of the trail just shown on
+  /// this screen's map.
+  ///
+  /// Goes through ActivitySelectionScreen first (Cycling vs Running),
+  /// then SubtypeSelectionScreen, exactly like a normal recording would
+  /// — rather than assuming whatever activity type this planning screen
+  /// happened to be opened with.
   ///
   /// GpsPoint requires a timestamp field (it's built for *recorded* GPS
   /// fixes), but a freshly-planned route has no real fix times — the
@@ -166,10 +172,10 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => SubtypeSelectionScreen(
-          activityType: widget.activityType,
+        builder: (_) => ActivitySelectionScreen(
           referenceRoute: referenceRoute,
           referenceRouteLabel: _safest ? 'your Safest Itinerary' : 'your Direct Route',
+          referenceRouteColor: _safest ? const Color(0xff2ECC71) : const Color(0xff2F6FED),
         ),
       ),
     );
@@ -237,14 +243,17 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
                       point: _start!,
                       width: 24,
                       height: 24,
-                      child: Container(decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.blue, border: Border.all(color: Colors.white, width: 2))),
+                      child: const UserLocationDot(size: 24),
                     ),
                   if (_destination != null)
                     Marker(
                       point: _destination!,
-                      width: 30,
-                      height: 30,
-                      child: const Icon(Icons.location_on, color: Colors.redAccent, size: 30),
+                      width: 36,
+                      height: 36,
+                      // bottomCenter so the pin's pointed tip — not its
+                      // bulb — lands exactly on the tapped coordinate.
+                      alignment: Alignment.bottomCenter,
+                      child: const MapPinMarker(size: 36),
                     ),
                 ],
               ),

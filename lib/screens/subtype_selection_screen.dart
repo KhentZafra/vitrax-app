@@ -40,12 +40,14 @@ class SubtypeSelectionScreen extends StatelessWidget {
   final ActivityType activityType;
   final List<GpsPoint>? referenceRoute;
   final String? referenceRouteLabel;
+  final Color? referenceRouteColor;
 
   const SubtypeSelectionScreen({
     super.key,
     required this.activityType,
     this.referenceRoute,
     this.referenceRouteLabel,
+    this.referenceRouteColor,
   });
 
   bool get _isCycling => activityType == ActivityType.ride;
@@ -60,6 +62,7 @@ class SubtypeSelectionScreen extends StatelessWidget {
           subtype: subtype,
           referenceRoute: referenceRoute,
           referenceRouteLabel: referenceRouteLabel,
+          referenceRouteColor: referenceRouteColor,
         ),
       ),
     );

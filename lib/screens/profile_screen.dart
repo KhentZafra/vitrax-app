@@ -1,6 +1,5 @@
 
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -9,13 +8,13 @@ import '../models/achievement.dart';
 import '../models/activity.dart';
 import '../providers/activity_provider.dart';
 import '../services/achievement_service.dart';
-import '../services/avatar_service.dart';
 import '../services/community_impact_service.dart';
 import '../widgets/route_nav_icon.dart';
 import '../widgets/user_avatar.dart';
 import 'activity_detail_screen.dart';
 import 'all_activities_screen.dart';
 import 'community_feed_screen.dart';
+import 'edit_profile_screen.dart';
 import 'routes_screen.dart';
 
 /// Real Profile screen. Structured as Overview / Activities / Achievements
@@ -47,7 +46,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _email = '';
   String? _memberSince;
   String? _avatarUrl;
-  bool _isUploadingAvatar = false;
   CommunityImpactStats? _stats;
   bool _isLoading = true;
 
@@ -118,108 +116,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
   }
 
-  /// Camera/gallery choice for a new profile photo — same bottom-sheet
-  /// shape and wording style as the composer's own photo picker in
-  /// community_feed_screen.dart, so photo-picking feels consistent
-  /// across the app.
-  void _changeAvatar() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xff1a1a1a),
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) => SafeArea(
-        child: Wrap(
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_camera_outlined, color: Colors.white),
-              title: const Text('Take a photo', style: TextStyle(color: Colors.white)),
-              onTap: () {
-                Navigator.pop(context);
-                _pickAndUploadAvatar(ImageSource.camera);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined, color: Colors.white),
-              title: const Text('Choose from gallery', style: TextStyle(color: Colors.white)),
-              onTap: () {
-                Navigator.pop(context);
-                _pickAndUploadAvatar(ImageSource.gallery);
-              },
-            ),
-            if (_avatarUrl != null)
-              ListTile(
-                leading: const Icon(Icons.delete_outline, color: Colors.red),
-                title: const Text('Remove photo', style: TextStyle(color: Colors.red)),
-                onTap: () {
-                  Navigator.pop(context);
-                  _removeAvatar();
-                },
-              ),
-          ],
-        ),
-      ),
+  Future<void> _openEditProfile() async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => const EditProfileScreen()),
     );
-  }
-
-  Future<void> _pickAndUploadAvatar(ImageSource source) async {
-    final file = await AvatarService.pickAvatar(source: source);
-    if (file == null || !mounted) return;
-
-    setState(() => _isUploadingAvatar = true);
-    final url = await AvatarService.uploadAvatar(file);
-    if (!mounted) return;
-
-    setState(() {
-      _isUploadingAvatar = false;
-      if (url != null) _avatarUrl = url;
-    });
-
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(url != null ? 'Profile photo updated.' : "Couldn't upload your photo. Try again.")),
-    );
-  }
-
-  Future<void> _removeAvatar() async {
-    setState(() => _isUploadingAvatar = true);
-    final success = await AvatarService.removeAvatar();
-    if (!mounted) return;
-
-    setState(() {
-      _isUploadingAvatar = false;
-      if (success) _avatarUrl = null;
-    });
-
-    if (!success) {
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't remove your photo. Try again.")));
-    }
-  }
-
-  void _showSettingsSheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xff141414),
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            Container(width: 36, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(4))),
-            const SizedBox(height: 8),
-            ListTile(
-              leading: const Icon(Icons.logout, color: Colors.red),
-              title: const Text('Sign Out', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600)),
-              onTap: () {
-                Navigator.pop(sheetContext);
-                _signOut();
-              },
-            ),
-          ],
-        ),
-      ),
-    );
+    if (changed == true && mounted) _load();
   }
 
   @override
@@ -235,9 +137,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
         title: const Text('My Profile', style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
-          IconButton(
+          // Opens right under the gear (a dropdown), not as a bottom sheet.
+          PopupMenuButton<String>(
             icon: const Icon(Icons.settings_outlined),
-            onPressed: _showSettingsSheet,
+            tooltip: 'Settings',
+            color: const Color(0xff141414),
+            offset: const Offset(0, 48),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            onSelected: (value) {
+              if (value == 'edit') _openEditProfile();
+              if (value == 'signout') _signOut();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'edit',
+                child: Row(children: [
+                  Icon(Icons.edit_outlined, color: Colors.white, size: 20),
+                  SizedBox(width: 12),
+                  Text('Edit Profile', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                ]),
+              ),
+              PopupMenuItem(
+                value: 'signout',
+                child: Row(children: [
+                  Icon(Icons.logout, color: Colors.red, size: 20),
+                  SizedBox(width: 12),
+                  Text('Sign Out', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600)),
+                ]),
+              ),
+            ],
           ),
         ],
       ),
@@ -334,35 +262,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Stack(
-          children: [
-            UserAvatar(
-              avatarUrl: _avatarUrl,
-              radius: 38,
-              backgroundColor: Colors.blue.withValues(alpha: .15),
-              iconColor: Colors.blue,
-            ),
-            if (_isUploadingAvatar)
-              Positioned.fill(
-                child: Container(
-                  decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.black54),
-                  child: const Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))),
-                ),
-              ),
-            Positioned(
-              right: 0,
-              bottom: 0,
-              child: InkWell(
-                onTap: _isUploadingAvatar ? null : _changeAvatar,
-                customBorder: const CircleBorder(),
-                child: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xff222222)),
-                  child: const Icon(Icons.camera_alt, color: Colors.white, size: 14),
-                ),
-              ),
-            ),
-          ],
+        UserAvatar(
+          avatarUrl: _avatarUrl,
+          radius: 38,
+          backgroundColor: Colors.blue.withValues(alpha: .15),
+          iconColor: Colors.blue,
         ),
         const SizedBox(width: 16),
         Expanded(
