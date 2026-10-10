@@ -197,7 +197,8 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
     return Scaffold(
       backgroundColor: const Color(0xff050505),
       appBar: AppBar(
-        backgroundColor: const Color(0xff050505),
+        backgroundColor: Colors.black,
+        centerTitle: false,
         title: const Text('Plan a Route', style: TextStyle(color: Colors.white)),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
@@ -287,94 +288,122 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
             right: 0,
             bottom: 0,
             child: Container(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-              decoration: const BoxDecoration(
-                color: Color(0xff0d0d0d),
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
+              decoration: BoxDecoration(
+                color: const Color(0xff0A0B0F),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                border: Border(top: BorderSide(color: Colors.white.withValues(alpha: .08))),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _TierToggleButton(
-                          label: 'Safest Itinerary',
-                          icon: Icons.shield_outlined,
-                          selected: _safest,
-                          onTap: () => setState(() {
-                            _safest = true;
-                            _route = null;
-                          }),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _TierToggleButton(
-                          label: 'Direct Route',
-                          icon: Icons.trending_flat,
-                          selected: !_safest,
-                          onTap: () => setState(() {
-                            _safest = false;
-                            _route = null;
-                          }),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  if (_route != null) ...[
-                    Row(
-                      children: [
-                        Icon(Icons.route, color: Colors.grey.shade400, size: 16),
-                        const SizedBox(width: 6),
-                        Text(_formatDistance(_route!.distanceMeters), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-                        const SizedBox(width: 18),
-                        Icon(Icons.access_time, color: Colors.grey.shade400, size: 16),
-                        const SizedBox(width: 6),
-                        Text(_formatDuration(_route!.durationSeconds), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-                      ],
+              child: SafeArea(
+                top: false,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(width: 44, height: 5, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(3))),
                     ),
                     const SizedBox(height: 14),
-                  ],
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: (_start != null && _destination != null && !_isFindingRoute) ? _findRoute : null,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blueAccent,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _TierToggleButton(
+                            label: 'Safest Itinerary',
+                            subtitle: 'Recommended route',
+                            icon: Icons.shield_outlined,
+                            selected: _safest,
+                            onTap: () => setState(() {
+                              _safest = true;
+                              _route = null;
+                            }),
                           ),
-                          child: _isFindingRoute
-                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                              : const Text('Find Route', style: TextStyle(fontWeight: FontWeight.bold)),
                         ),
-                      ),
-                      // Only shows up once a route has actually been
-                      // found — nothing to track before that.
-                      if (_route != null) ...[
                         const SizedBox(width: 10),
                         Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _trackThisRoute,
-                            icon: const Icon(Icons.navigation_outlined, size: 18),
-                            label: const Text('Track', style: TextStyle(fontWeight: FontWeight.bold)),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.greenAccent,
-                              side: const BorderSide(color: Colors.greenAccent),
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
+                          child: _TierToggleButton(
+                            label: 'Direct Route',
+                            subtitle: 'Faster but less safe',
+                            icon: Icons.arrow_right_alt,
+                            selected: !_safest,
+                            onTap: () => setState(() {
+                              _safest = false;
+                              _route = null;
+                            }),
                           ),
                         ),
                       ],
-                    ],
-                  ),
-                ],
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xff101216),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.white12),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _StatTile(
+                              icon: Icons.route,
+                              label: 'Distance',
+                              value: _route == null ? '--' : _formatDistance(_route!.distanceMeters),
+                            ),
+                          ),
+                          Container(width: 1, height: 36, color: Colors.white12),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _StatTile(
+                              icon: Icons.schedule,
+                              label: 'Estimated Time',
+                              value: _route == null ? '--' : _formatDuration(_route!.durationSeconds),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          flex: _route != null ? 11 : 1,
+                          child: _FindRouteButton(
+                            loading: _isFindingRoute,
+                            onTap: (_start != null && _destination != null && !_isFindingRoute) ? _findRoute : null,
+                          ),
+                        ),
+                        // Only shows up once a route has actually been
+                        // found — nothing to track before that.
+                        if (_route != null) ...[
+                          const SizedBox(width: 12),
+                          Expanded(
+                            flex: 8,
+                            child: InkWell(
+                              onTap: _trackThisRoute,
+                              borderRadius: BorderRadius.circular(16),
+                              child: Container(
+                                height: 48,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xff07140D),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: const Color(0xff2ECC71), width: 1.5),
+                                ),
+                                child: const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.navigation_outlined, color: Color(0xff2ECC71), size: 20),
+                                    SizedBox(width: 8),
+                                    Text('Track', style: TextStyle(color: Color(0xff2ECC71), fontSize: 15, fontWeight: FontWeight.w600)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -386,29 +415,110 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
 
 class _TierToggleButton extends StatelessWidget {
   final String label;
+  final String subtitle;
   final IconData icon;
   final bool selected;
   final VoidCallback onTap;
-  const _TierToggleButton({required this.label, required this.icon, required this.selected, required this.onTap});
+  const _TierToggleButton({required this.label, required this.subtitle, required this.icon, required this.selected, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
+    const blue = Color(0xff2F7BFF);
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(16),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(
-          color: selected ? Colors.blueAccent.withValues(alpha: .18) : const Color(0xff181818),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: selected ? Colors.blueAccent : Colors.white10),
+          color: selected ? const Color(0xff0B1C3D) : const Color(0xff121316),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: selected ? blue : Colors.white12, width: selected ? 1.5 : 1),
         ),
-        child: Column(
+        child: Row(
           children: [
-            Icon(icon, color: selected ? Colors.blueAccent : Colors.grey.shade400, size: 18),
-            const SizedBox(height: 4),
-            Text(label, style: TextStyle(color: selected ? Colors.blueAccent : Colors.grey.shade400, fontSize: 12, fontWeight: FontWeight.w600)),
+            Icon(icon, color: selected ? blue : Colors.grey.shade400, size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: selected ? blue : Colors.white, fontSize: 13, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 2),
+                  Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
+                ],
+              ),
+            ),
+            if (selected)
+              Container(
+                width: 20,
+                height: 20,
+                decoration: const BoxDecoration(shape: BoxShape.circle, color: blue),
+                child: const Icon(Icons.check, color: Colors.white, size: 13),
+              ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StatTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  const _StatTile({required this.icon, required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, color: const Color(0xff2F7BFF), size: 24),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+              const SizedBox(height: 2),
+              Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _FindRouteButton extends StatelessWidget {
+  final bool loading;
+  final VoidCallback? onTap;
+  const _FindRouteButton({required this.loading, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: onTap == null && !loading ? .5 : 1,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          height: 48,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            gradient: const LinearGradient(colors: [Color(0xff1459E0), Color(0xff2D7BFF)]),
+            boxShadow: [BoxShadow(color: const Color(0xff2F7BFF).withValues(alpha: .35), blurRadius: 16, offset: const Offset(0, 5))],
+          ),
+          child: loading
+              ? const Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)))
+              : const Row(
+                  children: [
+                    Icon(Icons.near_me_outlined, color: Colors.white, size: 20),
+                    SizedBox(width: 10),
+                    Expanded(child: Text('Find Route', style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600))),
+                    Icon(Icons.chevron_right, color: Colors.white, size: 22),
+                  ],
+                ),
         ),
       ),
     );

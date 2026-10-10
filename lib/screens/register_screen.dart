@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'loading_screen.dart';
 import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:internet_connection_checker_plus/internet_connection_checker_plus.dart';
@@ -299,6 +300,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
 
       final user = response.user;
+
+      // Email confirmation is OFF in the Supabase project right now, so a
+      // successful sign-up already comes back signed in (it has a
+      // session): go straight into the app like a normal login. If
+      // confirmation is ever turned back on, session is null and the
+      // "Check your email" dialog below shows instead.
+      if (user != null && response.session != null) {
+        if (!mounted) return;
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const LoadingScreen()),
+          (route) => false,
+        );
+        return;
+      }
 
       if (user != null) {
         // The `profiles` row itself is created automatically by a

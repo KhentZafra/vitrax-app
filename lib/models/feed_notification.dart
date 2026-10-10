@@ -53,7 +53,7 @@ class FeedNotification {
       postId: row['post_id'] as String,
       body: row['body'] as String?,
       isRead: row['is_read'] as bool? ?? false,
-      createdAt: DateTime.parse(row['created_at'] as String),
+      createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
     );
   }
 }

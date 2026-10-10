@@ -49,7 +49,7 @@ class ChallengeService {
         if (row['user_id'] == currentUserId) {
           joinedByMe.add(challengeId);
           if (row['completed_at'] != null) {
-            myCompletedAt[challengeId] = DateTime.parse(row['completed_at'] as String);
+            myCompletedAt[challengeId] = DateTime.parse(row['completed_at'] as String).toLocal();
           }
         }
       }
@@ -137,7 +137,7 @@ class ChallengeService {
     try {
       await _supabase
           .from('challenge_participants')
-          .update({'completed_at': DateTime.now().toIso8601String()})
+          .update({'completed_at': DateTime.now().toUtc().toIso8601String()})
           .eq('challenge_id', challengeId)
           .eq('user_id', user.id);
       return true;
@@ -201,7 +201,7 @@ class ChallengeService {
           userId: row['user_id'] as String,
           name: name.isEmpty ? 'A Vitrax user' : name,
           avatarUrl: profile?['avatar_url'] as String?,
-          completedAt: completedAtRaw != null ? DateTime.parse(completedAtRaw) : null,
+          completedAt: completedAtRaw != null ? DateTime.parse(completedAtRaw).toLocal() : null,
           progressValue: (row['progress_value'] as num?)?.toDouble() ?? 0.0,
         );
       }).toList();
@@ -518,7 +518,7 @@ class ChallengeService {
       await _supabase.from('challenge_participants').update({
         'duration_seconds': newSeconds,
         'activity_id': activity.id,
-        'completed_at': DateTime.now().toIso8601String(),
+        'completed_at': DateTime.now().toUtc().toIso8601String(),
       }).eq('challenge_id', challenge.id).eq('user_id', user.id);
 
       return ChallengeAttemptResult(ChallengeAttemptStatus.success, duration: activity.duration);

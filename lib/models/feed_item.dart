@@ -107,7 +107,7 @@ class FeedItem {
       caption: row['caption'] as String?,
       mediaUrl: row['media_url'] as String?,
       mediaType: _mediaTypeFromString(row['media_type'] as String?),
-      createdAt: DateTime.parse(row['created_at'] as String),
+      createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
       likeCount: likeCount,
       likedByMe: likedByMe,
       commentCount: commentCount,

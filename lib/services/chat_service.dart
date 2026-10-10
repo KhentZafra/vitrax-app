@@ -84,7 +84,7 @@ class ChatService {
         final last = profile?['last_name'] as String? ?? '';
         final name = ('$first $last').trim();
         final lastMessage = lastMessageByConversation[id];
-        final lastMessageAt = lastMessage != null ? DateTime.parse(lastMessage['created_at'] as String) : null;
+        final lastMessageAt = lastMessage != null ? DateTime.parse(lastMessage['created_at'] as String).toLocal() : null;
 
         // Unread only if the last message is actually from THEM — you
         // sending the last message is never "unread" for you, no matter
@@ -141,7 +141,7 @@ class ChatService {
     try {
       await _supabase
           .from('conversation_participants')
-          .update({'last_read_at': DateTime.now().toIso8601String()})
+          .update({'last_read_at': DateTime.now().toUtc().toIso8601String()})
           .eq('conversation_id', conversationId)
           .eq('user_id', user.id);
     } catch (e) {

@@ -31,7 +31,7 @@ class FeedComment {
       userName: name.isEmpty ? 'A Vitrax user' : name,
       avatarUrl: profile?['avatar_url'] as String?,
       body: row['body'] as String,
-      createdAt: DateTime.parse(row['created_at'] as String),
+      createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
       parentId: row['parent_id'] as String?,
     );
   }

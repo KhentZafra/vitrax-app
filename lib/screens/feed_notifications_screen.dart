@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/feed_item.dart';
 import '../models/feed_notification.dart';
 import '../services/feed_notification_service.dart';
+import '../services/table_watcher.dart';
 import '../widgets/feed_comments_sheet.dart';
 import '../widgets/user_avatar.dart';
 
@@ -21,11 +25,29 @@ class FeedNotificationsScreen extends StatefulWidget {
 class _FeedNotificationsScreenState extends State<FeedNotificationsScreen> {
   List<FeedNotification> _list = [];
   bool _loading = true;
+  TableWatcher? _watcher;
+  Timer? _ticker;
 
   @override
   void initState() {
     super.initState();
     _load();
+    // Live: a new like/comment appears at the top while this is open.
+    final me = Supabase.instance.client.auth.currentUser?.id;
+    if (me != null) {
+      _watcher = TableWatcher(_load, debounce: const Duration(milliseconds: 300))
+        ..watch('feed_notifications', event: PostgresChangeEvent.insert, filterColumn: 'user_id', filterValue: me);
+    }
+    _ticker = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _watcher?.dispose();
+    _ticker?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {

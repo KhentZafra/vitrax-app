@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -16,6 +17,7 @@ import '../providers/chat_unread_provider.dart';
 import '../services/community_feed_service.dart';
 import '../services/media_upload_service.dart';
 import '../services/feed_notification_service.dart';
+import '../services/table_watcher.dart';
 import '../widgets/feed_comments_sheet.dart';
 import '../widgets/feed_share_sheet.dart';
 import '../widgets/nav_badge.dart';
@@ -50,6 +52,9 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   bool _isLoading = true;
   String? _myAvatarUrl;
   int _notifCount = 0;
+  TableWatcher? _feedWatcher;
+  TableWatcher? _notifWatcher;
+  Timer? _ticker;
 
   @override
   void initState() {
@@ -59,6 +64,26 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
     _load();
     _loadMyAvatar();
     _refreshNotifCount();
+    _startLive();
+  }
+
+  /// Live updates: new posts, likes and comments refresh the feed, and a
+  /// new notification bumps the bell - no pull-to-refresh needed. The
+  /// 30s ticker keeps "5m ago" labels current.
+  void _startLive() {
+    _feedWatcher = TableWatcher(() => _load(silent: true), debounce: const Duration(milliseconds: 800))
+      ..watch('community_posts')
+      ..watch('feed_comments')
+      ..watch('post_likes')
+      ..watch('activity_likes');
+    final me = Supabase.instance.client.auth.currentUser?.id;
+    if (me != null) {
+      _notifWatcher = TableWatcher(_refreshNotifCount, debounce: const Duration(milliseconds: 300))
+        ..watch('feed_notifications', event: PostgresChangeEvent.insert, filterColumn: 'user_id', filterValue: me);
+    }
+    _ticker = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   Future<void> _refreshNotifCount() async {
@@ -92,12 +117,15 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
 
   @override
   void dispose() {
+    _feedWatcher?.dispose();
+    _notifWatcher?.dispose();
+    _ticker?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
-    setState(() => _isLoading = true);
+  Future<void> _load({bool silent = false}) async {
+    if (!silent) setState(() => _isLoading = true);
     final items = await CommunityFeedService.fetchFeed();
     if (!mounted) return;
     setState(() {

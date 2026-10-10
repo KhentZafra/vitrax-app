@@ -22,7 +22,7 @@ class ChatMessage {
       conversationId: map['conversation_id'] as String,
       senderId: map['sender_id'] as String,
       body: map['body'] as String,
-      createdAt: DateTime.parse(map['created_at'] as String),
+      createdAt: DateTime.parse(map['created_at'] as String).toLocal(),
       isMine: map['sender_id'] == currentUserId,
     );
   }

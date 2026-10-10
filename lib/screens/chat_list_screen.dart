@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -5,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../models/chat_message.dart';
 import '../providers/chat_unread_provider.dart';
 import '../services/chat_service.dart';
+import '../services/table_watcher.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_thread_screen.dart';
 
@@ -38,15 +41,30 @@ class ChatConversationsList extends StatefulWidget {
 class _ChatConversationsListState extends State<ChatConversationsList> {
   List<ChatConversation> _conversations = [];
   bool _isLoading = true;
+  TableWatcher? _watcher;
+  Timer? _ticker;
 
   @override
   void initState() {
     super.initState();
     _load();
+    // Live: new/updated messages refresh the list without a spinner.
+    _watcher = TableWatcher(() => _load(silent: true))..watch('messages');
+    // Re-draw every 30s so "3:05 PM" vs "Yesterday" labels stay current.
+    _ticker = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
-  Future<void> _load() async {
-    setState(() => _isLoading = true);
+  @override
+  void dispose() {
+    _watcher?.dispose();
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (!silent) setState(() => _isLoading = true);
     final conversations = await ChatService.fetchConversations();
     if (!mounted) return;
     setState(() {
