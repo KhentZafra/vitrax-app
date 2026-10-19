@@ -1,3 +1,6 @@
+import 'dart:math' as math;
+
+import 'badge_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/hazard_report.dart';
 
@@ -48,8 +51,8 @@ class HazardService {
     }
   }
 
-  /// Makes the given hazard reports visible to other users. Called when
-  /// the user taps "Share to Community" on the post-recording modal.
+  /// Makes the given hazard reports visible to other users. Called
+  /// automatically when a recorded activity is saved.
   static Future<bool> shareHazards(List<String> hazardIds) async {
     if (hazardIds.isEmpty) return true;
     try {
@@ -62,11 +65,44 @@ class HazardService {
     }
   }
 
-  /// Fetches every hazard report that's been shared community-wide.
-  /// No PostGIS/geo-query extension is set up, so this pulls all shared
-  /// rows and the caller filters by distance client-side — fine for a
-  /// small-to-medium dataset; revisit with a bounding-box query or
-  /// PostGIS if hazard volume grows large.
+  /// Shared hazards inside [radiusMeters] of a point. The database only
+  /// sends back hazards inside a latitude/longitude box around the point,
+  /// so a user never downloads the whole country's hazards. Callers still
+  /// apply an exact circular distance check on the small result.
+  static Future<List<HazardReport>> fetchNear(double lat, double lng, double radiusMeters) async {
+    try {
+      final dLat = radiusMeters / 111320.0;
+      final cosLat = math.cos(lat * math.pi / 180).abs().clamp(0.01, 1.0);
+      final dLng = radiusMeters / (111320.0 * cosLat);
+      final rows = await _supabase
+          .from('hazards')
+          .select()
+          .eq('shared', true)
+          .gte('lat', lat - dLat)
+          .lte('lat', lat + dLat)
+          .gte('lng', lng - dLng)
+          .lte('lng', lng + dLng)
+          .limit(500);
+      return (rows as List<dynamic>).map((r) => HazardReport.fromMap(r as Map<String, dynamic>)).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Which of [hazardIds] were reported by the current user. Used so the
+  /// app never asks you "is it still there?" about your own report.
+  static Future<Set<String>> fetchMyReportedIds(List<String> hazardIds) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null || hazardIds.isEmpty) return {};
+    try {
+      final rows = await _supabase.from('hazards').select('id').eq('user_id', user.id).inFilter('id', hazardIds);
+      return (rows as List).map((r) => (r as Map<String, dynamic>)['id'] as String).toSet();
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /// Every shared hazard. Avoid for map screens; use [fetchNear].
   static Future<List<HazardReport>> fetchShared() async {
     try {
       final rows = await _supabase.from('hazards').select().eq('shared', true);
@@ -89,6 +125,7 @@ class HazardService {
     if (user == null) return false;
     try {
       await _supabase.from('hazard_clear_confirmations').insert({'hazard_id': hazardId, 'user_id': user.id});
+      BadgeService.check(); // Safety Warden progress
       return true;
     } catch (e) {
       // ignore: avoid_print

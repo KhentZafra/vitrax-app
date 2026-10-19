@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import '../services/badge_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/activity.dart';
 import '../services/connectivity_service.dart';
@@ -115,6 +116,7 @@ class ActivityProvider extends ChangeNotifier {
       _activities = [saved, ..._activities];
       errorMessage = null;
       notifyListeners();
+      BadgeService.check(); // did this ride earn a badge?
       return saved;
     } catch (e) {
       // Network/Supabase problem — queue locally instead of losing the

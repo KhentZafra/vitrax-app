@@ -20,8 +20,8 @@ class PhotoUploadService {
     final picker = ImagePicker();
     final picked = await picker.pickImage(
       source: source,
-      maxWidth: 1600,
-      imageQuality: 82,
+      maxWidth: 1280,
+      imageQuality: 75,
     );
     if (picked == null) return null;
     return File(picked.path);

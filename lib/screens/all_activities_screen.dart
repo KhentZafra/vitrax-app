@@ -178,7 +178,7 @@ class _ActivityRow extends StatelessWidget {
                   if (activity.pendingSync)
                     const Padding(
                       padding: EdgeInsets.only(top: 4),
-                      child: Icon(Icons.cloud_off, color: Colors.orange, size: 14),
+                      child: Icon(Icons.cloud_off, color: Colors.blue, size: 14),
                     ),
                 ],
               ),

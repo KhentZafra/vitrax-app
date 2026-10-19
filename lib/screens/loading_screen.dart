@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:skeletonizer/skeletonizer.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'legal_screen.dart';
 
 class LoadingScreen extends StatefulWidget {
   const LoadingScreen({super.key});
@@ -28,10 +30,50 @@ class _LoadingScreenState extends State<LoadingScreen> {
 
     if (!mounted) return;
 
+    // An admin can suspend an account from the admin website. A suspended
+    // user is signed straight back out instead of entering the app.
+    if (await _isSuspended()) {
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      final navigator = Navigator.of(context);
+      await Supabase.instance.client.auth.signOut();
+      navigator.pushNamedAndRemoveUntil('/login', (route) => false);
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Your account has been suspended. Contact the VITRAX team for help.')),
+      );
+      return;
+    }
+
+    // Accounts made before the Privacy Policy existed (or when it changes)
+    // must accept it once. Declining signs them out.
+    if (!await ConsentGate.hasAccepted()) {
+      if (!mounted) return;
+      final accepted = await ConsentGate.prompt(context);
+      if (!accepted) {
+        await Supabase.instance.client.auth.signOut();
+        if (!mounted) return;
+        Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+        return;
+      }
+    }
+
+    if (!mounted) return;
     Navigator.pushReplacementNamed(
       context,
       "/activitySelection",
     );
+  }
+
+  Future<bool> _isSuspended() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return false;
+    try {
+      final row = await Supabase.instance.client.from('profiles').select('is_suspended').eq('id', user.id).maybeSingle();
+      return row?['is_suspended'] == true;
+    } catch (_) {
+      // Column not added yet (018_admin.sql not run) or offline: let the user in.
+      return false;
+    }
   }
 
   Widget skeletonCard() {

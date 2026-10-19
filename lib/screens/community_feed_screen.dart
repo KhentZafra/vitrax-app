@@ -50,6 +50,10 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
 
   List<FeedItem> _items = [];
   bool _isLoading = true;
+  String? _cursor;
+  bool _hasMore = false;
+  bool _loadingMore = false;
+  final ScrollController _scroll = ScrollController();
   String? _myAvatarUrl;
   int _notifCount = 0;
   TableWatcher? _feedWatcher;
@@ -61,6 +65,11 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
     super.initState();
     context.read<ActivityProvider>().loadActivities();
     context.read<ChatUnreadProvider>().refresh();
+    _scroll.addListener(() {
+      if (_scroll.hasClients && _scroll.position.pixels > _scroll.position.maxScrollExtent - 700) {
+        _loadMore();
+      }
+    });
     _load();
     _loadMyAvatar();
     _refreshNotifCount();
@@ -121,16 +130,42 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
     _notifWatcher?.dispose();
     _ticker?.cancel();
     _searchController.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
   Future<void> _load({bool silent = false}) async {
     if (!silent) setState(() => _isLoading = true);
-    final items = await CommunityFeedService.fetchFeed();
+    final page = await CommunityFeedService.fetchFeedPage();
     if (!mounted) return;
     setState(() {
-      _items = items;
+      if (silent && _items.length > page.items.length && page.items.isNotEmpty) {
+        // A live refresh while the user has scrolled deeper: replace the
+        // newest page but keep the older posts already loaded below it.
+        final tailTime = page.items.last.createdAt;
+        final older = _items.where((p) => p.createdAt.isBefore(tailTime)).toList();
+        _items = [...page.items, ...older];
+      } else {
+        _items = page.items;
+        _cursor = page.cursor;
+        _hasMore = page.hasMore;
+      }
       _isLoading = false;
+    });
+  }
+
+  /// Loads the next 20 posts when the user scrolls near the bottom.
+  Future<void> _loadMore() async {
+    if (_loadingMore || !_hasMore || _isLoading || _cursor == null) return;
+    setState(() => _loadingMore = true);
+    final page = await CommunityFeedService.fetchFeedPage(before: _cursor);
+    if (!mounted) return;
+    setState(() {
+      final have = _items.map((p) => '${p.kind}:${p.id}').toSet();
+      _items = [..._items, ...page.items.where((p) => !have.contains('${p.kind}:${p.id}'))];
+      _cursor = page.cursor ?? _cursor;
+      _hasMore = page.hasMore;
+      _loadingMore = false;
     });
   }
 
@@ -376,6 +411,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
       child: RefreshIndicator(
         onRefresh: _load,
         child: ListView(
+          controller: _scroll,
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
           children: [
@@ -412,6 +448,16 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
               ...(_isLoading
                   ? List.generate(2, (_) => const _PostSkeleton())
                   : _visibleItems.map((item) => _FeedItemCard(item: item, onLike: () => _toggleLike(item), onCommentCount: (n) => _setCommentCount(item, n), onReshared: _load))),
+            if (!_isLoading && _loadingMore)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))),
+              ),
+            if (!_isLoading && !_hasMore && _items.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                child: Center(child: Text("You're all caught up", style: TextStyle(color: Colors.grey.shade600, fontSize: 12))),
+              ),
           ],
         ),
       ),

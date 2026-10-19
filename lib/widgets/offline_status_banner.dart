@@ -85,12 +85,12 @@ class _OfflineStatusBannerState extends State<OfflineStatusBanner> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(isOffline ? Icons.cloud_off : Icons.check_circle, size: 15, color: isOffline ? Colors.orange : Colors.greenAccent),
+          Icon(isOffline ? Icons.cloud_off : Icons.check_circle, size: 15, color: isOffline ? Colors.blue : Colors.greenAccent),
           const SizedBox(width: 8),
           Flexible(
             child: Text(
               label,
-              style: TextStyle(color: isOffline ? Colors.orange.shade200 : Colors.greenAccent.shade100, fontSize: 12, fontWeight: FontWeight.w600),
+              style: TextStyle(color: isOffline ? Colors.lightBlue.shade200 : Colors.greenAccent.shade100, fontSize: 12, fontWeight: FontWeight.w600),
               overflow: TextOverflow.ellipsis,
             ),
           ),

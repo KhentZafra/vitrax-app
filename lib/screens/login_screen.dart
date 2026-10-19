@@ -202,18 +202,18 @@ class _LoginScreenState extends State<LoginScreen> {
                     margin: const EdgeInsets.only(bottom: 25),
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(.15),
+                      color: Colors.blue.withOpacity(.15),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.orange),
+                      border: Border.all(color: Colors.blue),
                     ),
                     child: const Row(
                       children: [
-                        Icon(Icons.wifi_off, color: Colors.orange),
+                        Icon(Icons.wifi_off, color: Colors.blue),
                         SizedBox(width: 10),
                         Expanded(
                           child: Text(
                             "You're offline. Please connect to the internet to sign in.",
-                            style: TextStyle(color: Colors.orange),
+                            style: TextStyle(color: Colors.blue),
                           ),
                         ),
                       ],

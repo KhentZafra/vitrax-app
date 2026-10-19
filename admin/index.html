@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>VITRAX Admin</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Login -->
+  <div id="login-view" class="login-wrap" hidden>
+    <form id="login-form" class="login-card" autocomplete="on">
+      <div class="brand big"><span class="logo">V</span> VITRAX <small>Admin</small></div>
+      <p class="muted">Sign in with an administrator account.</p>
+      <label>Email <input id="login-email" type="email" required autocomplete="username"></label>
+      <label>Password <input id="login-password" type="password" required autocomplete="current-password"></label>
+      <div id="login-error" class="error" hidden></div>
+      <button class="btn primary" type="submit">Sign in</button>
+    </form>
+  </div>
+
+  <!-- App -->
+  <div id="app-view" class="layout" hidden>
+    <aside class="sidebar">
+      <div class="brand"><span class="logo">V</span> VITRAX <small>Admin</small></div>
+      <nav id="nav"></nav>
+      <div class="sidebar-foot">
+        <div id="me" class="muted small"></div>
+        <button id="logout" class="btn ghost small-btn">Sign out</button>
+      </div>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <h1 id="page-title">Dashboard</h1>
+        <div class="top-actions"><button id="refresh" class="btn ghost small-btn">Refresh</button></div>
+      </header>
+      <section id="page" class="page"></section>
+    </main>
+  </div>
+
+  <div id="modal" class="modal" hidden>
+    <div class="modal-card">
+      <button id="modal-close" class="modal-x" aria-label="Close">&times;</button>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

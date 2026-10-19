@@ -10,6 +10,7 @@ import 'screens/home_screen.dart';
 import 'package:provider/provider.dart';
 import 'providers/activity_provider.dart';
 import 'providers/chat_unread_provider.dart';
+import 'services/badge_service.dart';
 import 'services/connectivity_service.dart';
 import 'services/notification_service.dart';
 import 'services/push_notification_service.dart';
@@ -77,9 +78,10 @@ class VitraxApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ChatUnreadProvider()),
       ],
       child: MaterialApp(
+        navigatorKey: rootNavigatorKey,
         debugShowCheckedModeBanner: false,
         title: 'VITRAX',
-        theme: ThemeData(colorSchemeSeed: Colors.orange, useMaterial3: true),
+        theme: ThemeData(colorSchemeSeed: Colors.blue, useMaterial3: true),
         initialRoute: '/',
         routes: {
           '/': (context) => const SplashScreen(),

@@ -1,3 +1,4 @@
+import '../services/badge_service.dart';
 import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -45,6 +46,8 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _checkInternet();
+    // Anything earned while away (e.g. someone confirmed your hazard)?
+    WidgetsBinding.instance.addPostFrameCallback((_) => BadgeService.check());
     _connectionSub =
         Connectivity().onConnectivityChanged.listen((_) => _checkInternet());
   }
@@ -437,23 +440,23 @@ class _OfflineBanner extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 20),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.orange.withValues(alpha: .15),
+        color: Colors.blue.withValues(alpha: .15),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.orange),
+        border: Border.all(color: Colors.blue),
       ),
       child: Row(
         children: [
-          const Icon(Icons.wifi_off, color: Colors.orange),
+          const Icon(Icons.wifi_off, color: Colors.blue),
           const SizedBox(width: 10),
           const Expanded(
             child: Text(
               "You're offline. Showing available data.",
-              style: TextStyle(color: Colors.orange),
+              style: TextStyle(color: Colors.blue),
             ),
           ),
           TextButton(
             onPressed: onRetry,
-            child: const Text('Retry', style: TextStyle(color: Colors.orange, fontWeight: FontWeight.w600)),
+            child: const Text('Retry', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.w600)),
           ),
         ],
       ),

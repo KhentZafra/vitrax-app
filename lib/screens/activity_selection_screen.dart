@@ -200,7 +200,7 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
                     title: 'Running',
                     subtitle: 'Log your running sessions',
                     tags: const ['Road', 'Trail', 'Marathon'],
-                    accentColor: Colors.orange,
+                    accentColor: const Color(0xff4FC3F7),
                     icon: Icons.directions_run,
                     onTap: () => _selectActivity(ActivityType.run),
                   ),
@@ -236,23 +236,23 @@ class _OfflineBanner extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 20),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.orange.withValues(alpha: .15),
+        color: Colors.blue.withValues(alpha: .15),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.orange),
+        border: Border.all(color: Colors.blue),
       ),
       child: Row(
         children: [
-          const Icon(Icons.wifi_off, color: Colors.orange),
+          const Icon(Icons.wifi_off, color: Colors.blue),
           const SizedBox(width: 10),
           const Expanded(
             child: Text(
               "You're offline. Pull down to retry.",
-              style: TextStyle(color: Colors.orange),
+              style: TextStyle(color: Colors.blue),
             ),
           ),
           TextButton(
             onPressed: onRetry,
-            child: const Text('Retry', style: TextStyle(color: Colors.orange, fontWeight: FontWeight.w600)),
+            child: const Text('Retry', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.w600)),
           ),
         ],
       ),

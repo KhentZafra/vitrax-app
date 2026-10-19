@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 /// [none] means "not earned yet" and is shown as a locked slot — there's
 /// no separate "locked" vs "in progress" state, since any value > 0 has
 /// already cleared the bronze threshold.
-enum BadgeTier { none, bronze, silver, gold, elite }
+enum BadgeTier { none, bronze, silver, gold, platinum, diamond, elite }
 
 extension BadgeTierX on BadgeTier {
   String get label {
@@ -17,6 +17,10 @@ extension BadgeTierX on BadgeTier {
         return 'Silver';
       case BadgeTier.gold:
         return 'Gold';
+      case BadgeTier.platinum:
+        return 'Platinum';
+      case BadgeTier.diamond:
+        return 'Diamond';
       case BadgeTier.elite:
         return 'Elite';
     }
@@ -32,6 +36,10 @@ extension BadgeTierX on BadgeTier {
         return const Color(0xffB0B4BB);
       case BadgeTier.gold:
         return const Color(0xffFFC94A);
+      case BadgeTier.platinum:
+        return const Color(0xff4FC3E8);
+      case BadgeTier.diamond:
+        return const Color(0xffA77BFF);
       case BadgeTier.elite:
         return const Color(0xffE91E8C);
     }

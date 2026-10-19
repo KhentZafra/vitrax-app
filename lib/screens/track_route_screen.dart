@@ -215,7 +215,7 @@ class _TrackRouteScreenState extends State<TrackRouteScreen> {
               left: 16,
               right: 16,
               top: 16,
-              child: _InfoBanner(icon: Icons.location_off, color: Colors.orange, message: _permissionError!),
+              child: _InfoBanner(icon: Icons.location_off, color: Colors.blue, message: _permissionError!),
             )
           else if (_isLoadingFix)
             Positioned(
@@ -280,12 +280,12 @@ class _TrackRouteScreenState extends State<TrackRouteScreen> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                           decoration: BoxDecoration(
-                            color: (onTrail ? Colors.green : Colors.orange).withValues(alpha: .18),
+                            color: (onTrail ? Colors.green : Colors.blue).withValues(alpha: .18),
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
                             onTrail ? 'On the trail' : '${_formatDistance(distanceFromTrail)} from trail',
-                            style: TextStyle(color: onTrail ? Colors.green : Colors.orange, fontSize: 11, fontWeight: FontWeight.w700),
+                            style: TextStyle(color: onTrail ? Colors.green : Colors.blue, fontSize: 11, fontWeight: FontWeight.w700),
                           ),
                         ),
                     ],

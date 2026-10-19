@@ -778,8 +778,11 @@ class _RoutePainter extends CustomPainter {
         ..strokeJoin = StrokeJoin.round,
     );
 
-    canvas.drawCircle(project(points.first), 4, Paint()..color = Colors.green);
-    canvas.drawCircle(project(points.last), 4, Paint()..color = Colors.blue);
+    for (final e in [(points.last, const Color(0xff3D7DFF)), (points.first, const Color(0xff2ECC71))]) {
+      final o = project(e.$1);
+      canvas.drawCircle(o, 6, Paint()..color = Colors.white);
+      canvas.drawCircle(o, 4.2, Paint()..color = e.$2);
+    }
   }
 
   @override
@@ -907,6 +910,24 @@ class _RouteDetailScreenState extends State<RouteDetailScreen> {
                     userAgentPackageName: 'com.vitrax.app',
                   ),
                   PolylineLayer(polylines: _buildSegments(points)),
+                  // Where the ride started and where it finished.
+                  MarkerLayer(
+                    markers: [
+                      Marker(
+                        point: points.last,
+                        width: 34,
+                        height: 34,
+                        child: const _RouteEndMarker(isStart: false),
+                      ),
+                      Marker(
+                        point: points.first,
+                        width: 34,
+                        height: 34,
+                        child: const _RouteEndMarker(isStart: true),
+                      ),
+                    ],
+                  ),
+                  const Positioned(left: 10, top: 10, child: _StartFinishLegend()),
                   if (_showHazards)
                     MarkerLayer(
                       markers: _hazardClusters
@@ -1321,6 +1342,88 @@ class _ClusterDetailSheetState extends State<_ClusterDetailSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Round marker for the first (green, play) or last (blue, flag) point of
+/// a route, with a small label so it is obvious which end is which. The
+/// Start label sits above and the Finish label below, so they do not cover
+/// each other on loop routes where both ends are at the same place.
+class _RouteEndMarker extends StatelessWidget {
+  final bool isStart;
+  const _RouteEndMarker({required this.isStart});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isStart ? const Color(0xff2ECC71) : const Color(0xff3D7DFF);
+    final label = isStart ? 'Start' : 'Finish';
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.center,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: color,
+            border: Border.all(color: Colors.white, width: 2.5),
+            boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 4)],
+          ),
+          child: Center(
+            child: Icon(isStart ? Icons.play_arrow_rounded : Icons.flag_rounded, color: Colors.white, size: 18),
+          ),
+        ),
+        Positioned(
+          left: -22,
+          right: -22,
+          top: isStart ? -22 : 36,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: .82),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: color, width: 1),
+              ),
+              child: Text(label, style: const TextStyle(color: Colors.white, fontSize: 10.5, fontWeight: FontWeight.w700)),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StartFinishLegend extends StatelessWidget {
+  const _StartFinishLegend();
+
+  @override
+  Widget build(BuildContext context) {
+    Widget item(Color c, IconData icon, String text) => Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 16,
+              height: 16,
+              decoration: BoxDecoration(shape: BoxShape.circle, color: c, border: Border.all(color: Colors.white, width: 1.5)),
+              child: Icon(icon, color: Colors.white, size: 10),
+            ),
+            const SizedBox(width: 5),
+            Text(text, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
+          ],
+        );
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(color: Colors.black.withValues(alpha: .78), borderRadius: BorderRadius.circular(10)),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          item(const Color(0xff2ECC71), Icons.play_arrow_rounded, 'Start'),
+          const SizedBox(height: 4),
+          item(const Color(0xff3D7DFF), Icons.flag_rounded, 'Finish'),
+        ],
       ),
     );
   }

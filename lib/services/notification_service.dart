@@ -115,6 +115,22 @@ class NotificationService {
     }
   }
 
+  /// Statement-only notice (no question) for a hazard the rider is inside
+  /// of but already reported or confirmed.
+  static Future<void> showInsideHazard(String hazardLabel) async {
+    if (!_initialized) return;
+    try {
+      await _plugin.show(
+        1003,
+        'Hazard area',
+        'You are inside a reported $hazardLabel area. Ride carefully.',
+        const NotificationDetails(android: _hazardChannel, iOS: DarwinNotificationDetails()),
+      );
+    } catch (e) {
+      if (kDebugMode) print('NotificationService.showInsideHazard failed: $e');
+    }
+  }
+
   /// Clears a previously-shown notification — call when the in-app
   /// dialog/banner it mirrors gets resolved (dismissed, answered, or
   /// the underlying condition clears on its own), so a stale system

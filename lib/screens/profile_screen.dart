@@ -7,7 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/achievement.dart';
 import '../models/activity.dart';
 import '../providers/activity_provider.dart';
-import '../services/achievement_service.dart';
+import '../services/badge_service.dart';
 import '../services/community_impact_service.dart';
 import '../widgets/route_nav_icon.dart';
 import '../widgets/user_avatar.dart';
@@ -47,6 +47,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? _memberSince;
   String? _avatarUrl;
   CommunityImpactStats? _stats;
+  Map<String, int>? _badgeStats;
   bool _isLoading = true;
 
   _ProfileTab _tab = _ProfileTab.overview;
@@ -85,6 +86,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     _stats = await CommunityImpactService.fetchStats(user.id);
+    _badgeStats = await BadgeService.fetchStats();
+    BadgeService.check();
 
     // Make sure ActivityProvider has data to show even if this is the
     // first screen visited this session.
@@ -387,7 +390,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             Expanded(
               child: _OverviewStat(
                 icon: Icons.access_time,
-                iconColor: Colors.amber,
+                iconColor: Colors.blue,
                 value: '${totalDuration.inHours}h ${totalDuration.inMinutes.remainder(60)}m',
                 label: 'Total\nTime',
               ),
@@ -494,7 +497,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         const SizedBox(height: 28),
         const Text('Badges', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
         const SizedBox(height: 2),
-        Text('Intrinsic recognition — never for sale, never cash.', style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+        Text('Earned automatically as you ride, finish challenges and keep the map safe.', style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
         const SizedBox(height: 12),
         GridView.count(
           crossAxisCount: 2,
@@ -503,9 +506,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           mainAxisSpacing: 12,
           crossAxisSpacing: 12,
           childAspectRatio: 1.05,
-          children: stats != null
-              ? AchievementService.fromStats(stats).map((b) => _BadgeCard(badge: b)).toList()
-              : List.generate(2, (_) => const _LockedBadgeSlot()),
+          children: _badgeStats != null && _badgeStats!.isNotEmpty
+              ? BadgeService.buildBadges(_badgeStats!).map((b) => _BadgeCard(badge: b)).toList()
+              : List.generate(BadgeService.defs.length, (_) => const _LockedBadgeSlot()),
         ),
       ],
     );
@@ -838,7 +841,7 @@ class _CommunityImpactCard extends StatelessWidget {
           Row(
             children: [
               Expanded(child: _StatTile(icon: Icons.verified_outlined, label: 'Hazards\nVerified', value: '${stats.hazardsVerified}', color: Colors.blue)),
-              Expanded(child: _StatTile(icon: Icons.cleaning_services_outlined, label: 'Obstacles\nCleared', value: '${stats.obstaclesCleared}', color: Colors.orange)),
+              Expanded(child: _StatTile(icon: Icons.cleaning_services_outlined, label: 'Obstacles\nCleared', value: '${stats.obstaclesCleared}', color: Colors.blue)),
             ],
           ),
           const SizedBox(height: 18),

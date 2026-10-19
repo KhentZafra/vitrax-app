@@ -1,3 +1,4 @@
+import 'badge_service.dart';
 import 'dart:io';
 
 import 'package:geolocator/geolocator.dart' hide ActivityType;
@@ -18,6 +19,13 @@ import '../models/challenge.dart';
 /// true" visibility the Community Feed already relies on) rather than
 /// needing any new RLS policy that would expose unshared activity data.
 class ChallengeService {
+  /// Fastest average speed accepted as physically possible by bike (70 km/h)
+  /// or on foot (45 km/h). Anything above is treated as driving a vehicle.
+  static bool isPlausiblePace(ActivityType type, double avgSpeedKmh) {
+    final maxKmh = type == ActivityType.ride ? 70.0 : 45.0;
+    return avgSpeedKmh <= maxKmh;
+  }
+
   static final _supabase = Supabase.instance.client;
   static const _uuid = Uuid();
 
@@ -140,6 +148,7 @@ class ChallengeService {
           .update({'completed_at': DateTime.now().toUtc().toIso8601String()})
           .eq('challenge_id', challengeId)
           .eq('user_id', user.id);
+      BadgeService.check(); // challenge finished - any badge earned?
       return true;
     } catch (e) {
       // ignore: avoid_print
@@ -488,8 +497,7 @@ class ChallengeService {
     // for the activity type (e.g. someone driving the route in a car)
     // is rejected outright. Not foolproof — a determined GPS-spoofer
     // can still get past this — but it catches the obvious case.
-    final maxPlausibleKmh = activity.type == ActivityType.ride ? 70.0 : 45.0;
-    if (activity.avgSpeedKmh > maxPlausibleKmh) {
+    if (!isPlausiblePace(activity.type, activity.avgSpeedKmh)) {
       return const ChallengeAttemptResult(ChallengeAttemptStatus.implausiblePace);
     }
 

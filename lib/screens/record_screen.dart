@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart' hide ActivityType;
@@ -11,6 +12,8 @@ import '../models/hazard_report.dart';
 import '../config/hazard_cluster_config.dart';
 import '../models/hazard_cluster.dart';
 import '../services/hazard_service.dart';
+import '../services/background_guard.dart';
+import '../services/recording_checkpoint.dart';
 import '../services/community_impact_service.dart';
 import '../services/notification_service.dart';
 import '../services/tts_service.dart';
@@ -62,7 +65,7 @@ class RecordScreen extends StatefulWidget {
   State<RecordScreen> createState() => _RecordScreenState();
 }
 
-class _RecordScreenState extends State<RecordScreen> {
+class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver {
   StreamSubscription<Position>? _positionSub;
   Timer? _ticker;
   Timer? _undoTimer;
@@ -111,14 +114,41 @@ class _RecordScreenState extends State<RecordScreen> {
 
   // ---- Early "heads-up" awareness (stage 1) ----
   // Stage 1 (this): a spoken + on-screen caution when a community hazard
-  // is within _awarenessMeters of you, or is visible in the current map
-  // view. Informational only — no question is asked.
+  // is within _awarenessMeters of you (nearby only, not just anywhere on
+  // the map). Informational only — no question is asked.
   // Stage 2 (_checkHazardProximity's prompt): only once you are inside the
   // hazard's own radius does the app ask "is it still there? yes / no".
-  static const _awarenessMeters = 5000.0;
+  static const _awarenessMeters = 300.0;
   static const _awarenessCooldown = Duration(seconds: 20);
   static const _hazardReloadDistanceMeters = 2000.0;
   final Set<String> _sessionWarnedHazardKeys = {};
+  final Set<String> _sessionInsideAnnouncedKeys = {};
+
+  // Hazards this user already dealt with: reported them, confirmed them
+  // still there, or confirmed them cleared. The app never asks about, or
+  // warns about, these again.
+  final Set<String> _handledHazardIds = {};
+
+  String _clusterKey(HazardCluster c) =>
+      '${c.type.name}:${c.center.latitude.toStringAsFixed(5)},${c.center.longitude.toStringAsFixed(5)}';
+
+  bool _clusterFullyHandled(HazardCluster c) =>
+      c.reports.isNotEmpty && c.reports.every((r) => r.id != null && _handledHazardIds.contains(r.id));
+
+  /// Looks up which nearby hazards this user already reported, verified or
+  /// confirmed cleared. Runs in the background after hazards load.
+  Future<void> _refreshHandledHazards(List<HazardReport> nearby) async {
+    final ids = nearby.map((h) => h.id).whereType<String>().toList();
+    if (ids.isEmpty) return;
+    final mine = await HazardService.fetchMyReportedIds(ids);
+    final cleared = await HazardService.fetchClearStatus(ids);
+    final verified = await CommunityImpactService.fetchVerificationStatus(ids);
+    if (!mounted) return;
+    _handledHazardIds
+      ..addAll(mine)
+      ..addAll(cleared.entries.where((e) => e.value.byMe).map((e) => e.key))
+      ..addAll(verified.entries.where((e) => e.value.byMe).map((e) => e.key));
+  }
   DateTime? _lastAwarenessAt;
   LatLng? _lastHazardLoadCenter;
   bool _hazardReloadInFlight = false;
@@ -176,6 +206,8 @@ class _RecordScreenState extends State<RecordScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _offerRecovery());
     // Post-frame so context/ScaffoldMessenger is safe to use if a
     // permission snackbar needs to show immediately.
     WidgetsBinding.instance.addPostFrameCallback((_) => _watchForAutoStart());
@@ -195,6 +227,7 @@ class _RecordScreenState extends State<RecordScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _positionSub?.cancel();
     _preStartMotionSub?.cancel();
     _ticker?.cancel();
@@ -202,6 +235,154 @@ class _RecordScreenState extends State<RecordScreen> {
     _autoStopTimer?.cancel();
     _autoStopSecondsLeft.dispose();
     super.dispose();
+  }
+
+  // ---- Background recording reliability --------------------------------
+
+  /// Location settings for the live recording. On Android this runs the
+  /// GPS inside a foreground service (the "VITRAX is recording" notification),
+  /// which is what lets recording continue with the screen off or the app
+  /// in the background. A wake lock keeps the CPU awake between fixes.
+  LocationSettings _recordingSettings() {
+    if (Platform.isAndroid) {
+      return AndroidSettings(
+        accuracy: LocationAccuracy.best,
+        distanceFilter: 0,
+        intervalDuration: const Duration(seconds: 1),
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationTitle: 'VITRAX is recording your activity',
+          notificationText: 'Tracking your route. Tap to return to the app.',
+          notificationChannelName: 'Activity recording',
+          enableWakeLock: true,
+          setOngoing: true,
+        ),
+      );
+    }
+    return const LocationSettings(
+      accuracy: LocationAccuracy.best,
+      distanceFilter: 0,
+    );
+  }
+
+  DateTime _lastTickAt = DateTime.now();
+  int _ticksSinceCheckpoint = 0;
+
+  void _saveCheckpoint() {
+    if (!_isRecording || _startedAt == null || _route.isEmpty) return;
+    RecordingCheckpoint.save(
+      type: widget.activityType,
+      subtype: widget.subtype,
+      distanceMeters: _distanceMeters,
+      elapsedSeconds: _elapsed.inSeconds,
+      startedAt: _startedAt!,
+      route: List<GpsPoint>.from(_route),
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !_isRecording) return;
+    _checkRecordingHealth();
+  }
+
+  /// When the user comes back to the app mid-recording, make sure GPS is
+  /// still on and the position stream is still delivering fixes.
+  Future<void> _checkRecordingHealth() async {
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      _showSnackWithAction(
+        'Location was turned off while recording. Turn it on to keep tracking.',
+        actionLabel: 'Open Settings',
+        onAction: Geolocator.openLocationSettings,
+      );
+      return;
+    }
+    if (!mounted || !_isRecording) return;
+    final gap = DateTime.now().difference(_lastFixTime ?? DateTime.now()).inSeconds;
+    if (gap > 20) {
+      // The stream went quiet while we were away: restart it.
+      _subscribePositions();
+    }
+  }
+
+  /// If the phone killed the app mid-ride last time, offer to save it.
+  Future<void> _offerRecovery() async {
+    if (!mounted || _isRecording) return;
+    final cp = await RecordingCheckpoint.load();
+    if (cp == null || !mounted || _isRecording) return;
+
+    List<GpsPoint> route;
+    try {
+      route = (cp['route'] as List)
+          .map((e) => GpsPoint.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    } catch (_) {
+      await RecordingCheckpoint.clear();
+      return;
+    }
+    final distKm = ((cp['distanceMeters'] as num?) ?? 0).toDouble() / 1000;
+    final secs = ((cp['elapsedSeconds'] as num?) ?? 0).toInt();
+    if (route.length < 2 || distKm < 0.05) {
+      await RecordingCheckpoint.clear();
+      return;
+    }
+
+    final h = secs ~/ 3600, m = (secs % 3600) ~/ 60, sec = secs % 60;
+    final dur = h > 0
+        ? '${h}h ${m.toString().padLeft(2, '0')}m'
+        : '${m}m ${sec.toString().padLeft(2, '0')}s';
+
+    // Proof the phone ended recording early: show the battery guide again.
+    await BackgroundGuard.resetSeen();
+    if (!mounted) return;
+
+    final save = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xff141414),
+        title: const Text('Unfinished activity found', style: TextStyle(color: Colors.white)),
+        content: Text(
+          'VITRAX was closed while recording. We kept ${distKm.toStringAsFixed(2)} km in $dur. Save it now?',
+          style: TextStyle(color: Colors.grey.shade300, fontSize: 14, height: 1.4),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Discard')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xff3D7DFF), foregroundColor: Colors.white),
+            child: const Text('Save activity'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (save != true) {
+      await RecordingCheckpoint.clear();
+      return;
+    }
+
+    ActivityType type;
+    try {
+      type = ActivityType.values.byName(cp['type'] as String);
+    } catch (_) {
+      type = widget.activityType;
+    }
+    final provider = context.read<ActivityProvider>();
+    final saved = await provider.saveActivity(
+      type: type,
+      subtype: cp['subtype'] as String?,
+      distanceKm: distKm,
+      duration: Duration(seconds: secs),
+      startedAt: DateTime.tryParse(cp['startedAt'] as String? ?? '') ?? DateTime.now(),
+      route: route,
+    );
+    if (!mounted) return;
+    if (saved != null) {
+      await RecordingCheckpoint.clear();
+      _showSnack('Activity saved.');
+    } else {
+      _showSnack(provider.errorMessage ?? 'Could not save yet. It is kept on your phone.');
+    }
   }
 
   Future<bool> _ensurePermission() async {
@@ -377,6 +558,12 @@ class _RecordScreenState extends State<RecordScreen> {
       return;
     }
 
+    if (mounted) await BackgroundGuard.ensureReady(context);
+    if (!mounted) {
+      _isStarting = false;
+      return;
+    }
+
     final current = await Geolocator.getCurrentPosition();
 
     // A concurrent call may have already finished starting the
@@ -417,8 +604,24 @@ class _RecordScreenState extends State<RecordScreen> {
     _ticker?.cancel();
     _positionSub?.cancel();
 
+    _lastTickAt = DateTime.now();
+    _ticksSinceCheckpoint = 0;
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!_isPaused) setState(() => _elapsed += const Duration(seconds: 1));
+      // Count real elapsed time, not "one tick = one second". With the
+      // screen off the phone may delay these ticks; wall-clock time keeps
+      // the duration correct anyway.
+      final tickNow = DateTime.now();
+      final tickGap = tickNow.difference(_lastTickAt);
+      _lastTickAt = tickNow;
+      if (!_isPaused) {
+        setState(() => _elapsed += tickGap < const Duration(milliseconds: 1500)
+            ? const Duration(seconds: 1)
+            : Duration(seconds: (tickGap.inMilliseconds / 1000).round()));
+      }
+      if (++_ticksSinceCheckpoint >= 15) {
+        _ticksSinceCheckpoint = 0;
+        _saveCheckpoint();
+      }
 
       final secondsSinceFix = DateTime.now()
           .difference(_lastFixTime ?? DateTime.now())
@@ -450,11 +653,12 @@ class _RecordScreenState extends State<RecordScreen> {
     // nonzero value here means the stream goes completely silent once
     // you stop moving that many meters between updates, which is why
     // speed wasn't reacting and the stillness dialog wasn't firing.
-    const settings = LocationSettings(
-      accuracy: LocationAccuracy.best,
-      distanceFilter: 0,
-    );
+    _subscribePositions();
+  }
 
+  void _subscribePositions() {
+    final settings = _recordingSettings();
+    _positionSub?.cancel();
     _positionSub = Geolocator.getPositionStream(locationSettings: settings)
         .listen((pos) {
           const maxAcceptableAccuracyMeters = 20.0;
@@ -533,6 +737,9 @@ class _RecordScreenState extends State<RecordScreen> {
           });
           _mapController.move(latLng, _mapController.camera.zoom);
           _checkHazardProximity(latLng);
+        }, onError: (Object e) {
+          // Stream died (for example GPS switched off). The lifecycle check
+          // restarts it when the user returns; do not crash the recording.
         });
   }
 
@@ -543,7 +750,7 @@ class _RecordScreenState extends State<RecordScreen> {
   Future<void> _loadCommunityHazards(LatLng near) async {
     const searchRadiusMeters = 5000.0;
     _lastHazardLoadCenter = near;
-    final shared = await HazardService.fetchShared();
+    final shared = await HazardService.fetchNear(near.latitude, near.longitude, searchRadiusMeters);
     if (!mounted) return;
 
     final nearby = shared.where((h) {
@@ -562,6 +769,7 @@ class _RecordScreenState extends State<RecordScreen> {
         thresholdMeters: HazardClusterConfig.duplicateThresholdMeters,
       );
     });
+    _refreshHandledHazards(nearby);
   }
 
   String _relativeTimeLabel(DateTime time) {
@@ -627,15 +835,34 @@ class _RecordScreenState extends State<RecordScreen> {
       final sorted = [...cluster.reports]
         ..sort((a, b) => b.reportedAt.compareTo(a.reportedAt));
       final candidate = sorted.firstWhere(
-        (r) => r.id != null,
+        (r) =>
+            r.id != null &&
+            !_handledHazardIds.contains(r.id) &&
+            !_sessionPromptedHazardIds.contains(r.id),
         orElse: () => sorted.first,
       );
       if (candidate.id == null ||
-          _sessionPromptedHazardIds.contains(candidate.id))
+          _handledHazardIds.contains(candidate.id) ||
+          _sessionPromptedHazardIds.contains(candidate.id)) {
+        // Already asked about, or already yours / confirmed by you: stay
+        // quiet, and do not follow it with an early-warning notification.
+        _sessionWarnedHazardKeys.add(_clusterKey(cluster));
+        // Tell the rider they are inside the area (statement only, no
+        // question), once per hazard per recording.
+        if (_sessionInsideAnnouncedKeys.add(_clusterKey(cluster))) {
+          final label = cluster.type.label.toLowerCase();
+          _showSnack('You are inside a reported $label area. Ride carefully.');
+          NotificationService.showInsideHazard(label);
+          TtsService.speak('You are inside a reported $label area. Ride carefully.');
+          return;
+        }
         continue;
+      }
 
       setState(() {
         _sessionPromptedHazardIds.add(candidate.id!);
+        _sessionWarnedHazardKeys.add(_clusterKey(cluster));
+        _sessionInsideAnnouncedKeys.add(_clusterKey(cluster)); // asked, so no extra "inside" notice
         _proximityPrompt = candidate;
       });
       // Mirrors the in-app banner as a system notification, same reason
@@ -685,19 +912,12 @@ class _RecordScreenState extends State<RecordScreen> {
   }
 
   /// Stage 1: early heads-up. Warns once per hazard per recording session
-  /// when it is within [_awarenessMeters] or visible in the map view,
+  /// when it is within [_awarenessMeters] of the rider,
   /// nearest first, at most one announcement per [_awarenessCooldown].
   void _maybeWarnAboutNearbyHazard(LatLng current) {
     final now = DateTime.now();
     final last = _lastAwarenessAt;
     if (last != null && now.difference(last) < _awarenessCooldown) return;
-
-    LatLngBounds? visible;
-    try {
-      visible = _mapController.camera.visibleBounds;
-    } catch (_) {
-      visible = null; // map not laid out yet
-    }
 
     HazardCluster? best;
     double bestDistance = double.infinity;
@@ -705,6 +925,7 @@ class _RecordScreenState extends State<RecordScreen> {
       final key =
           '${cluster.type.name}:${cluster.center.latitude.toStringAsFixed(5)},${cluster.center.longitude.toStringAsFixed(5)}';
       if (_sessionWarnedHazardKeys.contains(key)) continue;
+      if (_clusterFullyHandled(cluster)) continue; // your own / already confirmed
 
       final distance = Geolocator.distanceBetween(
         current.latitude,
@@ -723,8 +944,7 @@ class _RecordScreenState extends State<RecordScreen> {
         continue;
       }
 
-      final inView = visible?.contains(cluster.center) ?? false;
-      if (distance > _awarenessMeters && !inView) continue;
+      if (distance > _awarenessMeters) continue; // only hazards close to you
       if (distance < bestDistance) {
         best = cluster;
         bestDistance = distance;
@@ -747,6 +967,10 @@ class _RecordScreenState extends State<RecordScreen> {
     final report = _proximityPrompt;
     if (report?.id == null || _proximityBusy) return;
 
+    // The rider has answered: end the question / listening speech so the
+    // reply below is the only thing that speaks.
+    await TtsService.stop();
+    await VoiceCommandService.stop(); // also close the microphone if it is open
     setState(() => _proximityBusy = true);
     final success = stillHere
         ? await CommunityImpactService.verifyStillHere(report!.id!)
@@ -759,11 +983,23 @@ class _RecordScreenState extends State<RecordScreen> {
     });
     NotificationService.cancelHazardAlert();
 
+    // Whether it worked or not (a failure means it is yours or you already
+    // answered), never ask about this one again.
+    if (report.id != null) _handledHazardIds.add(report.id!);
+    // This hazard was just dealt with: no "you are inside a hazard area"
+    // or caution for it afterwards.
+    for (final c in _communityClusters) {
+      if (c.reports.any((r) => r.id == report.id)) {
+        _sessionInsideAnnouncedKeys.add(_clusterKey(c));
+        _sessionWarnedHazardKeys.add(_clusterKey(c));
+      }
+    }
+
     if (!success) {
-      TtsService.speak("Sorry, that couldn't be recorded. You may be the original reporter, or already confirmed this one.");
+      TtsService.speak("Sorry, that couldn't be recorded. You may be the original reporter, or already confirmed this one.", important: true);
       _showSnack("Couldn't record that, You may be the original reporter, or already confirmed this one.");
     } else {
-      TtsService.speak('Thank you for confirming. Your confirmation is greatly appreciated.');
+      TtsService.speak('Thank you for confirming. Your confirmation is greatly appreciated.', important: true);
       _showSnack(stillHere ? 'Thanks!, This helps keep reports trustworthy.' : 'Thanks for helping keep the map accurate.');
     }
   }
@@ -998,6 +1234,16 @@ class _RecordScreenState extends State<RecordScreen> {
         if (!mounted) return;
       }
 
+      // Hazard reports are shared with the community automatically once
+      // the activity is saved: they are safety information for other
+      // riders and runners, so they should not depend on sharing the
+      // track. (The rows already exist, so this works even for an
+      // activity that is still waiting to sync.)
+      if (hazardIdsSnapshot.isNotEmpty) {
+        await HazardService.shareHazards(hazardIdsSnapshot);
+        if (!mounted) return;
+      }
+
       setState(() => _isSaving = false);
 
       if (saved.pendingSync) {
@@ -1018,6 +1264,7 @@ class _RecordScreenState extends State<RecordScreen> {
   }
 
   void _resetToPreStart() {
+    RecordingCheckpoint.clear();
     _autoStopTimer?.cancel();
     _stillSince = null;
     _checkInDialogOpen = false;
@@ -1205,7 +1452,7 @@ class _RecordScreenState extends State<RecordScreen> {
                       height: 14,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Colors.blue.shade200,
+                        color: Colors.lightBlue.shade200,
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -1561,7 +1808,7 @@ class _RecordScreenState extends State<RecordScreen> {
                       const Divider(color: Colors.white12, height: 18),
                       _StatRow(
                         icon: Icons.bolt,
-                        iconColor: Colors.amber,
+                        iconColor: Colors.blue,
                         value: avgSpeed.toStringAsFixed(1),
                         unit: 'km/h',
                         label: 'AVG. SPEED',
@@ -1727,9 +1974,9 @@ class _RecordScreenState extends State<RecordScreen> {
                                     stillHere: true,
                                   ),
                                   style: OutlinedButton.styleFrom(
-                                    foregroundColor: Colors.orange,
+                                    foregroundColor: Colors.blue,
                                     side: const BorderSide(
-                                      color: Colors.orange,
+                                      color: Colors.blue,
                                     ),
                                     padding: const EdgeInsets.symmetric(
                                       vertical: 8,
@@ -1917,12 +2164,7 @@ class _CompletionModalState extends State<_CompletionModal> {
     if (current.id == null || current.pendingSync) return;
     setState(() => _isSharing = true);
 
-    final results = await Future.wait([
-      provider.markActivityShared(current.id!),
-      HazardService.shareHazards(widget.hazardIds),
-    ]);
-    final activityShared = results[0];
-    final hazardsShared = results[1];
+    final activityShared = await provider.markActivityShared(current.id!);
 
     if (!mounted) return;
     setState(() {
@@ -1935,14 +2177,6 @@ class _CompletionModalState extends State<_CompletionModal> {
         const SnackBar(
           content: Text(
             'Could not share right now, Please try again from Recent Activity later.',
-          ),
-        ),
-      );
-    } else if (!hazardsShared && widget.hazardIds.isNotEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Activity shared, but hazard reports could not be shared, Please try again later.',
           ),
         ),
       );
@@ -2034,7 +2268,7 @@ class _CompletionModalState extends State<_CompletionModal> {
                     vertical: 8,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.orange.withValues(alpha: .12),
+                    color: Colors.blue.withValues(alpha: .12),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Row(
@@ -2042,7 +2276,7 @@ class _CompletionModalState extends State<_CompletionModal> {
                     children: [
                       const Icon(
                         Icons.cloud_off,
-                        color: Colors.orange,
+                        color: Colors.blue,
                         size: 16,
                       ),
                       const SizedBox(width: 8),
@@ -2050,7 +2284,7 @@ class _CompletionModalState extends State<_CompletionModal> {
                         child: Text(
                           'Saved on your device, Will sync and become shareable once you\'re back online.',
                           style: TextStyle(
-                            color: Colors.orange.shade200,
+                            color: Colors.lightBlue.shade200,
                             fontSize: 12,
                           ),
                         ),
@@ -2129,10 +2363,33 @@ class _CompletionModalState extends State<_CompletionModal> {
               const SizedBox(height: 20),
 
               // ---- Share explanation ----
+              if (hasHazards) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: .12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.shield_outlined, color: Colors.green, size: 16),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          widget.hazardIds.length == 1
+                              ? 'Your hazard report was shared to keep others safe.'
+                              : 'Your ${widget.hazardIds.length} hazard reports were shared to keep others safe.',
+                          style: TextStyle(color: Colors.green.shade200, fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
               Text(
-                hasHazards
-                    ? 'Share with the community so everyone can see your reports and stay informed.'
-                    : 'Share with the community so everyone can see your progress.',
+                'Share your track with the community so everyone can see your progress.',
                 style: TextStyle(
                   color: Colors.grey.shade500,
                   fontSize: 12.5,
@@ -2152,7 +2409,7 @@ class _CompletionModalState extends State<_CompletionModal> {
                     ? OutlinedButton.icon(
                         onPressed: null,
                         icon: const Icon(Icons.check, size: 18),
-                        label: const Text('Shared with Community'),
+                        label: const Text('Track Shared'),
                         style: OutlinedButton.styleFrom(
                           disabledForegroundColor: Colors.green,
                           side: const BorderSide(color: Colors.green),
@@ -2182,7 +2439,7 @@ class _CompletionModalState extends State<_CompletionModal> {
                                 size: 18,
                               ),
                         label: Text(
-                          a.pendingSync ? 'Retry Sync' : 'Share to Community',
+                          a.pendingSync ? 'Retry Sync' : 'Share Your Track',
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.blue,
@@ -2241,9 +2498,7 @@ class _CompletionModalState extends State<_CompletionModal> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: (_shared || a.pendingSync)
-                      ? () => Navigator.pop(context)
-                      : null,
+                  onPressed: () => Navigator.pop(context),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.blue,
                     disabledBackgroundColor: const Color(0xff1a1a1a),
@@ -2255,7 +2510,7 @@ class _CompletionModalState extends State<_CompletionModal> {
                     ),
                   ),
                   child: Text(
-                    _shared || a.pendingSync ? 'Done' : 'Share to enable Done',
+                    'Done',
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                 ),
@@ -2421,11 +2676,11 @@ class _ExitConfirmDialog extends StatelessWidget {
               height: 56,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.orange.withValues(alpha: .15),
+                color: Colors.blue.withValues(alpha: .15),
               ),
               child: const Icon(
                 Icons.pause_circle_outline,
-                color: Colors.orange,
+                color: Colors.blue,
                 size: 30,
               ),
             ),

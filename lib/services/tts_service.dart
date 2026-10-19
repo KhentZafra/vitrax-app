@@ -1,111 +1,117 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
-/// Spoken audio alerts — for hazards encountered while actively
-/// recording an activity, where the panel's feedback was clear: a
-/// cyclist doing 30 km/h or a runner on a steep hill cannot safely look
-/// down at a phone mounted to a handlebar or armband. This reads the
-/// alert out loud instead, through the phone speaker or connected
-/// earphones, alongside (not instead of) the existing visual banner and
-/// system notification in record_screen.dart — some users will have
-/// their phone muted or in a pocket, so the visual/notification path
-/// stays as a backup.
+/// Spoken audio alerts for rides. The rule: ONE message at a time.
 ///
-/// Kept deliberately simple: one shared FlutterTts instance, lazily
-/// initialized on first use. No queueing beyond what the plugin already
-/// does internally — record_screen.dart's own _sessionPromptedHazardIds
-/// already prevents the same hazard from being announced twice, so
-/// there's no risk of a rapid-fire pile-up of announcements to manage
-/// here.
+/// * A message that is speaking is never cut off by another message.
+/// * Important messages (questions, "thank you", errors) wait in line and
+///   play, in order, after the current one finishes.
+/// * Ambient messages (cautions, "you are inside a hazard area") are only
+///   spoken when nothing else is speaking or waiting. If the app is busy
+///   they are dropped, because a stale caution is worse than none.
+/// * [stop] ends the current speech and clears the line. Anything cleared
+///   never fires its follow-up action.
 class TtsService {
   static final FlutterTts _tts = FlutterTts();
   static bool _initialized = false;
+
+  static final List<_Item> _queue = [];
+  static bool _running = false;
+  static int _generation = 0;
 
   static Future<void> _ensureInitialized() async {
     if (_initialized) return;
     try {
       await _tts.setLanguage('en-US');
-      // Slightly slower than default speech rate — this is meant to be
-      // heard clearly over wind/road noise while moving, not read.
+      // Slightly slower than default — meant to be heard over wind/road
+      // noise while moving, not read.
       await _tts.setSpeechRate(0.45);
       await _tts.setVolume(1.0);
       await _tts.setPitch(1.0);
+      // speak() now finishes only when the speech has finished, which is
+      // what lets us play one message at a time.
+      await _tts.awaitSpeakCompletion(true);
       _initialized = true;
     } catch (e) {
       if (kDebugMode) print('TtsService._ensureInitialized failed: $e');
     }
   }
 
-  /// Speaks a hazard alert, e.g. "Caution: pothole reported 40 meters
-  /// ahead." [distanceMeters] is rounded to the nearest 10m — GPS isn't
-  /// precise enough to justify a more exact figure, and a round number
-  /// is easier to parse by ear anyway. Kept alongside [speakThen] (rather
-  /// than replaced by it) since not every caller needs a follow-up
-  /// action after the speech finishes.
+  static bool get isBusy => _running || _queue.isNotEmpty;
+
+  static Future<void> _enqueue(
+    String message, {
+    VoidCallback? onDone,
+    required bool important,
+  }) async {
+    await _ensureInitialized();
+    if (!_initialized) {
+      onDone?.call(); // broken speech engine must never block the flow
+      return;
+    }
+    if (!important && isBusy) return; // drop ambient while anything is speaking
+    _queue.add(_Item(message, onDone, _generation));
+    _pump();
+  }
+
+  static Future<void> _pump() async {
+    if (_running) return;
+    _running = true;
+    try {
+      while (_queue.isNotEmpty) {
+        final item = _queue.removeAt(0);
+        if (item.generation != _generation) continue; // cleared by stop()
+        try {
+          await _tts.speak(item.message).timeout(const Duration(seconds: 25));
+        } catch (e) {
+          if (kDebugMode) print('TtsService speak failed: $e');
+          try {
+            await _tts.stop();
+          } catch (_) {}
+        }
+        if (item.generation == _generation) item.onDone?.call();
+      }
+    } finally {
+      _running = false;
+    }
+  }
+
+  /// Hazard alert (ambient). Kept for older callers.
   static Future<void> speakHazardAlert({
     required String hazardLabel,
     required double distanceMeters,
-  }) async {
-    await _ensureInitialized();
-    if (!_initialized) return;
-
-    final roundedDistance = (distanceMeters / 10).round() * 10;
-    try {
-      await _tts.stop(); // don't let an older alert overlap a new one
-      await _tts.speak('Caution: $hazardLabel reported $roundedDistance meters ahead.');
-    } catch (e) {
-      if (kDebugMode) print('TtsService.speakHazardAlert failed: $e');
-    }
+  }) {
+    final rounded = (distanceMeters / 10).round() * 10;
+    return _enqueue('Caution: $hazardLabel reported $rounded meters ahead.', important: false);
   }
 
-  /// Speaks [message], then calls [onDone] once the speech actually
-  /// finishes — used to chain straight into voice-command listening
-  /// (see VoiceCommandService) without the microphone racing to open
-  /// while the phone is still talking, which would just have it hear
-  /// itself. Falls back to calling [onDone] immediately if TTS itself
-  /// isn't available, so a broken speech engine never blocks the
-  /// voice-command flow entirely — the on-screen buttons still work.
-  static Future<void> speakThen(String message, VoidCallback onDone) async {
-    await _ensureInitialized();
-    if (!_initialized) {
-      onDone();
-      return;
-    }
-    try {
-      await _tts.stop();
-      _tts.setCompletionHandler(onDone);
-      await _tts.speak(message);
-    } catch (e) {
-      if (kDebugMode) print('TtsService.speakThen failed: $e');
-      onDone();
-    }
-  }
+  /// Speaks [message], then calls [onDone] once it has actually finished
+  /// (used to open the microphone only after the question is over).
+  /// Important: it waits for anything already speaking instead of cutting
+  /// it off.
+  static Future<void> speakThen(String message, VoidCallback onDone) =>
+      _enqueue(message, onDone: onDone, important: true);
 
-  /// Speaks a plain one-off message with no follow-up action — e.g. the
-  /// "Thank you for confirming" line after someone answers the hazard
-  /// still-here prompt, by tap or by voice. Explicitly clears any
-  /// completion handler left over from [speakThen] first; otherwise a
-  /// stale handler could fire again once THIS speech finishes, wrongly
-  /// re-triggering voice listening a second time.
-  static Future<void> speak(String message) async {
-    await _ensureInitialized();
-    if (!_initialized) return;
+  /// One-off message. [important] messages (answers, errors) queue behind
+  /// the current speech; the default, ambient messages, are dropped if
+  /// anything is already speaking.
+  static Future<void> speak(String message, {bool important = false}) =>
+      _enqueue(message, important: important);
 
-    try {
-      await _tts.stop();
-      _tts.setCompletionHandler(() {});
-      await _tts.speak(message);
-    } catch (e) {
-      if (kDebugMode) print('TtsService.speak failed: $e');
-    }
-  }
-
-  /// Stops any in-progress speech immediately — call this when the
-  /// recording session ends or the screen is disposed, so an alert
-  /// doesn't keep talking after the user has left the tracking screen.
+  /// Stops speaking now and clears everything waiting. Cleared messages
+  /// never run their follow-up action.
   static Future<void> stop() async {
+    _generation++;
+    _queue.clear();
     try {
       await _tts.stop();
     } catch (_) {}
   }
+}
+
+class _Item {
+  final String message;
+  final VoidCallback? onDone;
+  final int generation;
+  _Item(this.message, this.onDone, this.generation);
 }

@@ -85,13 +85,19 @@ class DirectionsService {
     required ActivityType activityType,
     List<LatLng> avoidCenters = const [],
     double avoidRadiusMeters = 80,
+    bool mainRoads = true,
   }) async {
     if (Env.orsApiKey.isEmpty || Env.orsApiKey == 'YOUR_OPENROUTESERVICE_API_KEY') {
       if (kDebugMode) print('DirectionsService: no ORS API key configured.');
       return null;
     }
 
-    final profile = _profileFor(activityType);
+    // "Main roads" mode: the walking/cycling profiles love footpaths, farm
+    // tracks and shortcuts, which gives zig-zag routes with many turns. The
+    // driving profile follows the major connected roads instead (fewest
+    // turns), and ferries and toll roads are excluded. Cars' one-way rules
+    // can add a small detour in towns, which is the trade-off.
+    final profile = mainRoads ? 'driving-car' : _profileFor(activityType);
     final uri = Uri.parse('$_baseUrl/$profile/geojson');
 
     final body = <String, dynamic>{
@@ -101,14 +107,18 @@ class DirectionsService {
       ],
     };
 
+    final options = <String, dynamic>{};
+    if (mainRoads) {
+      body['preference'] = 'recommended';
+      options['avoid_features'] = ['ferries', 'tollways'];
+    }
     if (avoidCenters.isNotEmpty) {
-      body['options'] = {
-        'avoid_polygons': {
-          'type': 'MultiPolygon',
-          'coordinates': avoidCenters.map((c) => [_circlePolygon(c, avoidRadiusMeters)]).toList(),
-        },
+      options['avoid_polygons'] = {
+        'type': 'MultiPolygon',
+        'coordinates': avoidCenters.map((c) => [_circlePolygon(c, avoidRadiusMeters)]).toList(),
       };
     }
+    if (options.isNotEmpty) body['options'] = options;
 
     try {
       final response = await http

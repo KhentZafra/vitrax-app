@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart' hide ActivityType;
 import 'package:latlong2/latlong.dart';
+import 'package:provider/provider.dart';
 
 import '../config/hazard_cluster_config.dart';
 import '../models/activity.dart';
 import '../models/hazard_cluster.dart';
 import '../models/hazard_report.dart';
+import '../providers/activity_provider.dart';
 import '../services/directions_service.dart';
 import '../services/hazard_service.dart';
 import '../widgets/map_pin_marker.dart';
@@ -31,7 +33,11 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
 
   LatLng? _start;
   LatLng? _destination;
+  // Cycling or running: changes the routing profile AND the time estimate.
+  late ActivityType _type = widget.activityType == ActivityType.ride ? ActivityType.ride : ActivityType.run;
+  bool _locating = false;
   bool _safest = true;
+  bool _mainRoads = true; // prefer major roads with few turns
   bool _isLoadingLocation = true;
   bool _isFindingRoute = false;
   String? _permissionError;
@@ -90,7 +96,7 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
   /// overlapping ones.
   Future<void> _loadNearbyHazards(LatLng near) async {
     const searchRadiusMeters = 5000.0;
-    final shared = await HazardService.fetchShared();
+    final shared = await HazardService.fetchNear(near.latitude, near.longitude, searchRadiusMeters);
     if (!mounted) return;
 
     final nearby = shared.where((h) {
@@ -122,8 +128,9 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
     final route = await DirectionsService.fetchRoute(
       start: start,
       destination: destination,
-      activityType: widget.activityType,
+      activityType: _type,
       avoidCenters: avoidCenters,
+      mainRoads: _mainRoads,
     );
 
     if (!mounted) return;
@@ -181,15 +188,140 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
     );
   }
 
+  // ---- Distance and time estimates ----
+  //
+  // 1. The routing engine snaps your start and your pin to the nearest
+  //    routable road or path. If either is off the road, the line it returns
+  //    stops short, so the app adds the straight-line gap at each end
+  //    (drawn dotted on the map) to the distance and the time.
+  // 2. Time = distance / pace. The pace is the median of YOUR own saved
+  //    activities of that type when there are at least 3 usable ones,
+  //    otherwise a typical recreational pace.
+  static const _typicalCycleKmh = 15.0;
+  static const _typicalRunKmh = 8.0;
+  static const _typicalWalkKmh = 5.0;
+
+  /// Straight-line metres from your start to where the route begins, and
+  /// from where it ends to your pin.
+  double _startGapMeters(PlannedRoute r) {
+    final start = _start;
+    if (start == null || r.points.isEmpty) return 0;
+    final f = r.points.first;
+    return Geolocator.distanceBetween(start.latitude, start.longitude, f.latitude, f.longitude);
+  }
+
+  double _endGapMeters(PlannedRoute r) {
+    final dest = _destination;
+    if (dest == null || r.points.isEmpty) return 0;
+    final l = r.points.last;
+    return Geolocator.distanceBetween(l.latitude, l.longitude, dest.latitude, dest.longitude);
+  }
+
+  /// Route length plus the off-road gaps at both ends.
+  double _totalMeters(PlannedRoute r) => r.distanceMeters + _startGapMeters(r) + _endGapMeters(r);
+
+  /// Median average speed (km/h) of the user's own saved activities of
+  /// [type], or null when there are fewer than 3 usable ones.
+  double? _personalKmh(ActivityType type) {
+    List<Activity> all;
+    try {
+      all = context.read<ActivityProvider>().allActivities;
+    } catch (_) {
+      return null;
+    }
+    final lo = type == ActivityType.ride ? 6.0 : 3.5;
+    final hi = type == ActivityType.ride ? 45.0 : 18.0;
+    final speeds = all
+        .where((a) => a.type == type && a.distanceKm >= 0.5 && a.avgSpeedKmh >= lo && a.avgSpeedKmh <= hi)
+        .take(30)
+        .map((a) => a.avgSpeedKmh)
+        .toList()
+      ..sort();
+    if (speeds.length < 3) return null;
+    final mid = speeds.length ~/ 2;
+    return speeds.length.isOdd ? speeds[mid] : (speeds[mid - 1] + speeds[mid]) / 2;
+  }
+
+  double _paceKmh(ActivityType type) {
+    final mine = _personalKmh(type);
+    if (mine != null) return mine;
+    switch (type) {
+      case ActivityType.ride:
+        return _typicalCycleKmh;
+      case ActivityType.run:
+        return _typicalRunKmh;
+      case ActivityType.walk:
+        return _typicalWalkKmh;
+    }
+  }
+
+  /// Estimated seconds for [type] over the whole trip (route + gaps).
+  double _estimateSeconds(ActivityType type, PlannedRoute route) {
+    return _totalMeters(route) / (_paceKmh(type) / 3.6);
+  }
+
+  /// "Based on your average pace" / "Based on a typical pace".
+  String _paceSourceNote() {
+    final mine = _personalKmh(_type) != null;
+    return mine ? 'Time is based on your own average pace.' : 'Time is based on a typical pace. It adjusts once you have 3 saved activities.';
+  }
+
+  void _setType(ActivityType t) {
+    if (t == _type) return;
+    setState(() {
+      _type = t;
+      _route = null; // roads allowed differ for cycling vs running
+    });
+  }
+
+  /// "Where am I?" - re-reads GPS, moves the map there and makes it the
+  /// route start.
+  Future<void> _locateMe() async {
+    if (_locating) return;
+    setState(() => _locating = true);
+    try {
+      final ok = await _ensurePermission();
+      if (!ok) return;
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Location services are turned off.'),
+            action: SnackBarAction(label: 'Open Settings', onPressed: Geolocator.openLocationSettings),
+          ),
+        );
+        return;
+      }
+      final position = await Geolocator.getCurrentPosition();
+      if (!mounted) return;
+      final here = LatLng(position.latitude, position.longitude);
+      setState(() {
+        _start = here;
+        _permissionError = null;
+        _isLoadingLocation = false;
+        _route = null;
+      });
+      _mapController.move(here, 16);
+      _loadNearbyHazards(here);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't get your location. Check your phone's location settings.")));
+    } finally {
+      if (mounted) setState(() => _locating = false);
+    }
+  }
+
   String _formatDistance(double meters) {
     if (meters < 1000) return '${meters.round()} m';
     return '${(meters / 1000).toStringAsFixed(2)} km';
   }
 
   String _formatDuration(double seconds) {
-    final d = Duration(seconds: seconds.round());
-    if (d.inHours > 0) return '${d.inHours}h ${d.inMinutes.remainder(60)}m';
-    return '${d.inMinutes}m';
+    // Rounded UP to whole minutes: "about 3m" for a 2m10s trip reads
+    // better than "2m" and never promises to be faster than it will be.
+    final mins = (seconds / 60).ceil();
+    if (mins >= 60) return '${mins ~/ 60}h ${mins % 60}m';
+    return '${mins < 1 ? 1 : mins}m';
   }
 
   @override
@@ -224,6 +356,23 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
                       color: _safest ? const Color(0xff2ECC71) : const Color(0xff2F6FED),
                       strokeWidth: 5,
                     ),
+                    // Dotted lines for the part the routing engine could not
+                    // follow: from your start to the route, and from the route
+                    // to your pin.
+                    if (_start != null && _route!.points.isNotEmpty && _startGapMeters(_route!) > 8)
+                      Polyline(
+                        points: [_start!, _route!.points.first],
+                        color: Colors.white70,
+                        strokeWidth: 3,
+                        pattern: StrokePattern.dotted(),
+                      ),
+                    if (_destination != null && _route!.points.isNotEmpty && _endGapMeters(_route!) > 8)
+                      Polyline(
+                        points: [_route!.points.last, _destination!],
+                        color: Colors.white70,
+                        strokeWidth: 3,
+                        pattern: StrokePattern.dotted(),
+                      ),
                   ],
                 ),
               MarkerLayer(
@@ -284,6 +433,27 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
             ),
 
           Positioned(
+            right: 16,
+            top: 72,
+            child: Material(
+              color: const Color(0xff0A0B0F),
+              shape: const CircleBorder(side: BorderSide(color: Colors.white24)),
+              elevation: 4,
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: _locateMe,
+                child: SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: _locating
+                      ? const Padding(padding: EdgeInsets.all(14), child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.my_location, color: Color(0xff2F7BFF)),
+                ),
+              ),
+            ),
+          ),
+
+          Positioned(
             left: 0,
             right: 0,
             bottom: 0,
@@ -304,6 +474,30 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
                       child: Container(width: 44, height: 5, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(3))),
                     ),
                     const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _TierToggleButton(
+                            label: 'Cycling',
+                            subtitle: 'Bike-friendly roads',
+                            icon: Icons.directions_bike,
+                            selected: _type == ActivityType.ride,
+                            onTap: () => _setType(ActivityType.ride),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _TierToggleButton(
+                            label: 'Running',
+                            subtitle: 'Footpaths and streets',
+                            icon: Icons.directions_run,
+                            selected: _type == ActivityType.run,
+                            onTap: () => _setType(ActivityType.run),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
                     Row(
                       children: [
                         Expanded(
@@ -333,7 +527,40 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(14, 2, 6, 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xff101216),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.white12),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.add_road, color: Color(0xff2F7BFF), size: 20),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Prefer main roads', style: TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w600)),
+                                Text('Major roads, fewer turns', style: TextStyle(color: Colors.white54, fontSize: 11.5)),
+                              ],
+                            ),
+                          ),
+                          Switch(
+                            value: _mainRoads,
+                            thumbColor: WidgetStateProperty.resolveWith((st) => st.contains(WidgetState.selected) ? Colors.white : Colors.grey),
+                            trackColor: WidgetStateProperty.resolveWith((st) => st.contains(WidgetState.selected) ? const Color(0xff2F7BFF) : Colors.white12),
+                            onChanged: (v) => setState(() {
+                              _mainRoads = v;
+                              _route = null; // stale once the road preference changes
+                            }),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       decoration: BoxDecoration(
@@ -347,7 +574,7 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
                             child: _StatTile(
                               icon: Icons.route,
                               label: 'Distance',
-                              value: _route == null ? '--' : _formatDistance(_route!.distanceMeters),
+                              value: _route == null ? '--' : _formatDistance(_totalMeters(_route!)),
                             ),
                           ),
                           Container(width: 1, height: 36, color: Colors.white12),
@@ -355,13 +582,36 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
                           Expanded(
                             child: _StatTile(
                               icon: Icons.schedule,
-                              label: 'Estimated Time',
-                              value: _route == null ? '--' : _formatDuration(_route!.durationSeconds),
+                              label: _type == ActivityType.ride ? 'Est. cycling time' : 'Est. running time',
+                              value: _route == null ? '--' : _formatDuration(_estimateSeconds(_type, _route!)),
                             ),
                           ),
                         ],
                       ),
                     ),
+                    if (_route != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Column(
+                          children: [
+                            Text(
+                              'Cycling about ${_formatDuration(_estimateSeconds(ActivityType.ride, _route!))}  \u00b7  Running about ${_formatDuration(_estimateSeconds(ActivityType.run, _route!))}',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                            ),
+                            if (_startGapMeters(_route!) + _endGapMeters(_route!) > 30) ...[
+                              const SizedBox(height: 3),
+                              Text(
+                                'Includes ${_formatDistance(_startGapMeters(_route!) + _endGapMeters(_route!))} off the mapped path (dotted line).',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Colors.grey.shade600, fontSize: 11.5),
+                              ),
+                            ],
+                            const SizedBox(height: 3),
+                            Text(_paceSourceNote(), textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade600, fontSize: 11.5)),
+                          ],
+                        ),
+                      ),
                     const SizedBox(height: 14),
                     Row(
                       children: [

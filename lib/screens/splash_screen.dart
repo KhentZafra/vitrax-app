@@ -1,6 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'loading_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -26,7 +29,19 @@ class _SplashScreenState extends State<SplashScreen>
       if (progress >= 1) {
         timer.cancel();
 
-        Navigator.pushReplacementNamed(context, "/login");
+        if (!mounted) return;
+        // A saved session means the user is already signed in (e.g. the
+        // phone closed the app in the background): skip the login screen.
+        final signedIn =
+            Supabase.instance.client.auth.currentSession != null;
+        if (signedIn) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const LoadingScreen()),
+          );
+        } else {
+          Navigator.pushReplacementNamed(context, "/login");
+        }
       }
     });
   }

@@ -42,3 +42,10 @@ lib (2).zip
 # Local backup copies made while editing - not part of the app
 _backup_*/
 **/_backup_*/
+
+# Admin website local config (keys)
+admin/config.js
+
+backups_2026-10-16/
+lib/screens/_backup_*/
+*.bak*

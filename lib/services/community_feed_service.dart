@@ -1,28 +1,55 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/feed_item.dart';
 
+/// One page of feed items plus what is needed to ask for the next page.
+class FeedPage {
+  final List<FeedItem> items;
+  final String? cursor; // database created_at of the last item
+  final bool hasMore;
+  const FeedPage({required this.items, required this.cursor, required this.hasMore});
+}
+
+class _Dated {
+  final FeedItem item;
+  final String createdAtRaw;
+  _Dated(this.item, this.createdAtRaw);
+}
+
 /// Fetches the community feed — shared activities AND standalone
 /// photo/video posts, merged and sorted newest-first — and handles
 /// toggling likes on either kind.
 class CommunityFeedService {
   static final _supabase = Supabase.instance.client;
 
-  static Future<List<FeedItem>> fetchFeed() async {
+  /// First page of the feed (kept for older callers).
+  static Future<List<FeedItem>> fetchFeed() async => (await fetchFeedPage()).items;
+
+  /// One page of the feed, newest first. Pass the previous page's
+  /// [FeedPage.cursor] as [before] to get the next 20.
+  static Future<FeedPage> fetchFeedPage({String? before, int limit = 20}) async {
     final currentUserId = _supabase.auth.currentUser?.id;
 
     // Fetched independently and defensively — a problem with one table
     // (e.g. a missing FK, an RLS issue) should never blank out the other
     // half of the feed. This is what silently hid the whole feed before
     // 010_community_posts_profiles_fk.sql was added.
-    final activityShares = await _safeFetch(() => _fetchActivityShares(currentUserId), label: 'activity shares');
-    final standalonePosts = await _safeFetch(() => _fetchStandalonePosts(currentUserId), label: 'standalone posts');
+    final activityShares = await _safeFetch(() => _fetchActivityShares(currentUserId, before, limit), label: 'activity shares');
+    final standalonePosts = await _safeFetch(() => _fetchStandalonePosts(currentUserId, before, limit), label: 'standalone posts');
 
-    final items = [...activityShares, ...standalonePosts];
-    items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    return items;
+    // Merge both sources by database time, keep the newest [limit]. What is
+    // left over is older than the cursor, so the next page picks it up.
+    final all = [...activityShares, ...standalonePosts];
+    all.sort((a, b) => DateTime.parse(b.createdAtRaw).compareTo(DateTime.parse(a.createdAtRaw)));
+    final hasMore = all.length > limit || activityShares.length >= limit || standalonePosts.length >= limit;
+    final page = all.take(limit).toList();
+    return FeedPage(
+      items: page.map((d) => d.item).toList(),
+      cursor: page.isEmpty ? null : page.last.createdAtRaw,
+      hasMore: hasMore && page.isNotEmpty,
+    );
   }
 
-  static Future<List<FeedItem>> _safeFetch(Future<List<FeedItem>> Function() fetch, {required String label}) async {
+  static Future<List<_Dated>> _safeFetch(Future<List<_Dated>> Function() fetch, {required String label}) async {
     try {
       return await fetch();
     } catch (e) {
@@ -35,15 +62,24 @@ class CommunityFeedService {
     }
   }
 
-  static Future<List<FeedItem>> _fetchActivityShares(String? currentUserId) async {
-    final rows = await _supabase
+  static Future<List<_Dated>> _fetchActivityShares(String? currentUserId, String? before, int limit) async {
+    var query = _supabase
         .from('activities')
         .select('*, profiles(first_name, last_name, avatar_url)')
-        .eq('shared', true)
-        .order('created_at', ascending: false);
+        .eq('shared', true);
+    if (before != null) query = query.lt('created_at', before);
+    final rows = await query.order('created_at', ascending: false).limit(limit);
 
     final activityRows = (rows as List).cast<Map<String, dynamic>>();
     if (activityRows.isEmpty) return [];
+
+    // Privacy: other people's posts show the trimmed route (first/last
+    // metres hidden). Your own posts keep the full route.
+    for (final row in activityRows) {
+      if (row['user_id'] != currentUserId && row['public_route'] != null) {
+        row['route'] = row['public_route'];
+      }
+    }
 
     final ids = activityRows.map((r) => r['id'] as String).toList();
     final likeRows = await _supabase.from('activity_likes').select('activity_id, user_id').inFilter('activity_id', ids);
@@ -58,11 +94,14 @@ class CommunityFeedService {
     }
 
     return activityRows
-        .map((row) => FeedItem.fromActivityRow(
-              row,
-              likeCount: counts[row['id']] ?? 0,
-              likedByMe: likedByMe.contains(row['id']),
-              commentCount: commentCounts[row['id']] ?? 0,
+        .map((row) => _Dated(
+              FeedItem.fromActivityRow(
+                row,
+                likeCount: counts[row['id']] ?? 0,
+                likedByMe: likedByMe.contains(row['id']),
+                commentCount: commentCounts[row['id']] ?? 0,
+              ),
+              row['created_at'].toString(),
             ))
         .toList();
   }
@@ -101,11 +140,12 @@ class CommunityFeedService {
     }
   }
 
-  static Future<List<FeedItem>> _fetchStandalonePosts(String? currentUserId) async {
-    final rows = await _supabase
+  static Future<List<_Dated>> _fetchStandalonePosts(String? currentUserId, String? before, int limit) async {
+    var query = _supabase
         .from('community_posts')
-        .select('*, profiles(first_name, last_name, avatar_url)')
-        .order('created_at', ascending: false);
+        .select('*, profiles(first_name, last_name, avatar_url)');
+    if (before != null) query = query.lt('created_at', before);
+    final rows = await query.order('created_at', ascending: false).limit(limit);
 
     final postRows = (rows as List).cast<Map<String, dynamic>>();
     if (postRows.isEmpty) return [];
@@ -128,12 +168,15 @@ class CommunityFeedService {
     }
 
     return postRows
-        .map((row) => FeedItem.fromPostRow(
-              row,
-              likeCount: counts[row['id']] ?? 0,
-              likedByMe: likedByMe.contains(row['id']),
-              commentCount: commentCounts[row['id']] ?? 0,
-              originalName: originalNames[row['original_user_id']],
+        .map((row) => _Dated(
+              FeedItem.fromPostRow(
+                row,
+                likeCount: counts[row['id']] ?? 0,
+                likedByMe: likedByMe.contains(row['id']),
+                commentCount: commentCounts[row['id']] ?? 0,
+                originalName: originalNames[row['original_user_id']],
+              ),
+              row['created_at'].toString(),
             ))
         .toList();
   }

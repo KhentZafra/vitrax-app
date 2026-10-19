@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'legal_screen.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -18,6 +19,7 @@ class EditProfileScreen extends StatefulWidget {
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
   final _supabase = Supabase.instance.client;
+  int _privacyZone = 200;
   final _firstController = TextEditingController();
   final _lastController = TextEditingController();
 
@@ -48,12 +50,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     try {
       final p = await _supabase
           .from('profiles')
-          .select('first_name, last_name, avatar_url, primary_activity')
+          .select('first_name, last_name, avatar_url, primary_activity, privacy_zone_m')
           .eq('id', user.id)
           .maybeSingle();
       _firstController.text = (p?['first_name'] as String?) ?? '';
       _lastController.text = (p?['last_name'] as String?) ?? '';
       _avatarUrl = p?['avatar_url'] as String?;
+      _privacyZone = (p?['privacy_zone_m'] as num?)?.toInt() ?? 200;
       final activity = p?['primary_activity'] as String?;
       if (activity == 'Cyclist' || activity == 'Runner') _primaryActivity = activity!;
     } catch (_) {}
@@ -307,6 +310,145 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     if (ok == true) _snack('Password updated.');
   }
 
+  // -------------------------------------------------------------- privacy
+
+  Future<void> _choosePrivacy() async {
+    const options = <int, String>{
+      0: 'Off - share full routes',
+      200: '200 m (recommended)',
+      500: '500 m',
+      1000: '1 km',
+    };
+    final picked = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        backgroundColor: const Color(0xff141414),
+        title: const Text('Hide start & end of shared routes', style: TextStyle(color: Colors.white, fontSize: 17)),
+        children: [
+          for (final e in options.entries)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(dialogContext, e.key),
+              child: Row(
+                children: [
+                  Icon(e.key == _privacyZone ? Icons.radio_button_checked : Icons.radio_button_off, color: Colors.white70, size: 20),
+                  const SizedBox(width: 10),
+                  Text(e.value, style: const TextStyle(color: Colors.white)),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+    if (picked == null || picked == _privacyZone) return;
+    final user = _supabase.auth.currentUser;
+    if (user == null) return;
+    try {
+      await _supabase.from('profiles').update({'privacy_zone_m': picked}).eq('id', user.id);
+      if (!mounted) return;
+      setState(() => _privacyZone = picked);
+      _snack('Route privacy updated.');
+    } catch (_) {
+      _snack("Couldn't update route privacy. Try again.");
+    }
+  }
+
+  String get _privacyLabel => _privacyZone == 0 ? 'Off - full routes are shared' : 'Hiding first & last ${_privacyZone >= 1000 ? '1 km' : '$_privacyZone m'}';
+
+  // ------------------------------------------------------- delete account
+
+  Future<void> _deleteAccount() async {
+    final password = TextEditingController();
+    final typed = TextEditingController();
+    String? error;
+    bool busy = false;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xff141414),
+          title: const Text('Delete my account', style: TextStyle(color: Colors.white)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'This permanently deletes your profile, activities, posts, comments, hazard reports and messages. It cannot be undone.',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: password,
+                  obscureText: true,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(labelText: 'Your password'),
+                ),
+                TextField(
+                  controller: typed,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(labelText: 'Type DELETE to confirm'),
+                ),
+                if (error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Text(error!, style: const TextStyle(color: Colors.redAccent, fontSize: 13)),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: busy ? null : () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+            TextButton(
+              onPressed: busy
+                  ? null
+                  : () async {
+                      if (password.text.isEmpty) {
+                        setDialogState(() => error = 'Enter your password.');
+                        return;
+                      }
+                      if (typed.text.trim() != 'DELETE') {
+                        setDialogState(() => error = 'Type DELETE exactly to confirm.');
+                        return;
+                      }
+                      setDialogState(() {
+                        busy = true;
+                        error = null;
+                      });
+                      try {
+                        await _supabase.auth.signInWithPassword(email: _email, password: password.text);
+                        await _supabase.rpc('delete_my_account');
+                        if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+                      } on AuthException catch (e) {
+                        final wrong = e.message.toLowerCase().contains('invalid');
+                        setDialogState(() {
+                          busy = false;
+                          error = wrong ? 'Password is incorrect.' : e.message;
+                        });
+                      } catch (_) {
+                        setDialogState(() {
+                          busy = false;
+                          error = "Couldn't delete your account. Check your connection and try again.";
+                        });
+                      }
+                    },
+              child: const Text('Delete forever', style: TextStyle(color: Colors.redAccent)),
+            ),
+          ],
+        ),
+      ),
+    );
+    password.dispose();
+    typed.dispose();
+    if (ok != true || !mounted) return;
+    try {
+      await _supabase.auth.signOut();
+    } catch (_) {}
+    if (!mounted) return;
+    Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+  }
+
   // ------------------------------------------------------------------ UI
 
   static const _blue = Color(0xff1E6BFF);
@@ -538,6 +680,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                               _AccountTile(icon: Icons.email_outlined, title: 'Email', subtitle: _email, onTap: _changeEmail),
                               const SizedBox(height: 12),
                               _AccountTile(icon: Icons.lock, title: 'Password', subtitle: 'Change your password', onTap: _changePassword),
+                              const SizedBox(height: 12),
+                              _AccountTile(icon: Icons.shield_outlined, title: 'Route privacy', subtitle: _privacyLabel, onTap: _choosePrivacy),
+                              const SizedBox(height: 12),
+                              _AccountTile(
+                                icon: Icons.policy_outlined,
+                                title: 'Privacy Policy & Terms',
+                                subtitle: 'How your data is used',
+                                onTap: () => LegalDialog.show(context),
+                              ),
+                              const SizedBox(height: 12),
+                              _AccountTile(icon: Icons.delete_forever, title: 'Delete my account', subtitle: 'Permanently remove your data', onTap: _deleteAccount),
                             ],
                           ),
                         ),

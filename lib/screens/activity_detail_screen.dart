@@ -219,7 +219,7 @@ class ActivityDetailScreen extends StatelessWidget {
                         Expanded(
                           child: _DetailStat(
                             icon: Icons.bolt,
-                            iconColor: Colors.amber,
+                            iconColor: Colors.blue,
                             value: activity.avgSpeedKmh.toStringAsFixed(1),
                             unit: 'km/h',
                             label: 'Avg Speed',
@@ -262,15 +262,15 @@ class ActivityDetailScreen extends StatelessWidget {
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         decoration: BoxDecoration(
-                          color: Colors.orange.withValues(alpha: .12),
+                          color: Colors.blue.withValues(alpha: .12),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.cloud_off, color: Colors.orange, size: 16),
+                            Icon(Icons.cloud_off, color: Colors.blue, size: 16),
                             SizedBox(width: 8),
-                            Text('Not yet synced, Will upload once online', style: TextStyle(color: Colors.orange, fontWeight: FontWeight.w600, fontSize: 13)),
+                            Text('Not yet synced, Will upload once online', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.w600, fontSize: 13)),
                           ],
                         ),
                       ),

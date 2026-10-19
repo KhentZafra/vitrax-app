@@ -360,13 +360,13 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                   if (c.hasPrize)
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(color: Colors.amber.withValues(alpha: .15), borderRadius: BorderRadius.circular(20)),
+                      decoration: BoxDecoration(color: Colors.blue.withValues(alpha: .15), borderRadius: BorderRadius.circular(20)),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.emoji_events, color: Colors.amber, size: 14),
+                          const Icon(Icons.emoji_events, color: Colors.blue, size: 14),
                           const SizedBox(width: 5),
-                          Text(_peso(c.prizeAmount!), style: const TextStyle(color: Colors.amber, fontSize: 12, fontWeight: FontWeight.w700)),
+                          Text(_peso(c.prizeAmount!), style: const TextStyle(color: Colors.blue, fontSize: 12, fontWeight: FontWeight.w700)),
                         ],
                       ),
                     ),
@@ -428,13 +428,13 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(color: Colors.amber.withValues(alpha: .06), borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.amber.withValues(alpha: .25))),
+                  decoration: BoxDecoration(color: Colors.blue.withValues(alpha: .06), borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.blue.withValues(alpha: .25))),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
-                          const Icon(Icons.emoji_events, color: Colors.amber, size: 18),
+                          const Icon(Icons.emoji_events, color: Colors.blue, size: 18),
                           const SizedBox(width: 8),
                           Text('${_peso(c.prizeAmount!)} prize', style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
                         ],
@@ -469,7 +469,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                               onPressed: _busy ? null : _uploadMyQr,
                               icon: const Icon(Icons.qr_code, size: 18),
                               label: const Text('Upload your GCash QR to get paid'),
-                              style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(vertical: 12)),
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 12)),
                             ),
                           ),
 

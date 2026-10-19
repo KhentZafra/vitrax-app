@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:image_picker/image_picker.dart';
+import 'package:video_compress/video_compress.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
@@ -22,7 +23,7 @@ class MediaUploadService {
   /// Opens the picker for a photo. Compressed client-side.
   static Future<File?> pickPhoto({required ImageSource source}) async {
     final picker = ImagePicker();
-    final picked = await picker.pickImage(source: source, maxWidth: 1600, imageQuality: 82);
+    final picked = await picker.pickImage(source: source, maxWidth: 1280, imageQuality: 75);
     if (picked == null) return null;
     return File(picked.path);
   }
@@ -36,7 +37,26 @@ class MediaUploadService {
     final picker = ImagePicker();
     final picked = await picker.pickVideo(source: source, maxDuration: MediaLimits.maxVideoDuration);
     if (picked == null) return null;
-    return File(picked.path);
+    return _compressVideo(File(picked.path));
+  }
+
+  /// Re-encodes a video to a smaller size before upload (rural mobile data
+  /// is slow and expensive). If compression fails for any reason the
+  /// original file is used, so posting never breaks because of it.
+  static Future<File> _compressVideo(File original) async {
+    try {
+      final info = await VideoCompress.compressVideo(
+        original.path,
+        quality: VideoQuality.MediumQuality,
+        deleteOrigin: false,
+        includeAudio: true,
+      );
+      final out = info?.file;
+      if (out != null && await out.exists() && await out.length() > 0 && await out.length() < await original.length()) {
+        return out;
+      }
+    } catch (_) {}
+    return original;
   }
 
   /// Checks [file] against the size cap for [mediaType]. Returns null if

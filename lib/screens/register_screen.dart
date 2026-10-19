@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../config/legal_text.dart';
+import 'legal_screen.dart';
 import 'loading_screen.dart';
 import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -24,6 +26,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _obscureConfirmPassword = true;
 
   bool isLoading = false;
+  bool agreedToTerms = false;
+
+  /// Opens the Privacy Policy (0) or Terms of Use (1) card. Accepting
+  /// there ticks the agreement box.
+  Future<void> _openLegal(int tab) async {
+    final accepted = await LegalDialog.show(context, initialTab: tab, requireDecision: true);
+    if (accepted == true && mounted) setState(() => agreedToTerms = true);
+  }
 
   int selectedActivity = -1; // 0 = Cyclist, 1 = Runner
 
@@ -267,6 +277,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
       setState(() {});
       return;
     }
+    if (!agreedToTerms) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please agree to the Privacy Policy and Terms to continue.")),
+      );
+      return;
+    }
 
     setState(() => isLoading = true);
     await checkInternet();
@@ -296,6 +312,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
           'first_name': firstNameController.text.trim(),
           'last_name': lastNameController.text.trim(),
           'primary_activity': selectedActivity == 0 ? 'Cyclist' : 'Runner',
+          // Proof of consent (Data Privacy Act): copied to the profile by
+          // the handle_new_user trigger (see supabase/021_consent.sql).
+          'consent_version': kPolicyVersion,
+          'consent_at': DateTime.now().toUtc().toIso8601String(),
         },
       );
 
@@ -474,18 +494,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   margin: const EdgeInsets.only(bottom: 25),
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(.15),
+                    color: Colors.blue.withOpacity(.15),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.orange),
+                    border: Border.all(color: Colors.blue),
                   ),
                   child: const Row(
                     children: [
-                      Icon(Icons.wifi_off, color: Colors.orange),
+                      Icon(Icons.wifi_off, color: Colors.blue),
                       SizedBox(width: 10),
                       Expanded(
                         child: Text(
                           "You're offline. Please connect to the internet to create an account.",
-                          style: TextStyle(color: Colors.orange),
+                          style: TextStyle(color: Colors.blue),
                         ),
                       ),
                     ],
@@ -645,7 +665,47 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ],
               ),
 
-              const SizedBox(height: 35),
+              const SizedBox(height: 24),
+
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: Checkbox(
+                      value: agreedToTerms,
+                      activeColor: const Color(0xff3D7DFF),
+                      side: const BorderSide(color: Colors.grey),
+                      onChanged: (v) => setState(() => agreedToTerms = v ?? false),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          const Text('I agree to the ', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                          InkWell(
+                            onTap: () => _openLegal(0),
+                            child: const Text('Privacy Policy', style: TextStyle(color: Color(0xff3D7DFF), fontSize: 13, fontWeight: FontWeight.bold)),
+                          ),
+                          const Text(' and ', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                          InkWell(
+                            onTap: () => _openLegal(1),
+                            child: const Text('Terms of Use', style: TextStyle(color: Color(0xff3D7DFF), fontSize: 13, fontWeight: FontWeight.bold)),
+                          ),
+                          const Text('.', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 22),
 
               SizedBox(
                 width: double.infinity,
