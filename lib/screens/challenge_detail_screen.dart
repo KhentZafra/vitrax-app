@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import '../widgets/skeleton_views.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -314,7 +315,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(backgroundColor: Color(0xff050505), body: Center(child: CircularProgressIndicator(color: Colors.blue)));
+      return const Scaffold(backgroundColor: Color(0xff050505), body: CardsSkeleton());
     }
 
     final c = _challenge;

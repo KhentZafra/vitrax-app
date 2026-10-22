@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/achievement.dart';
+import '../widgets/badge_medal.dart';
 
 /// Key the root MaterialApp uses, so a badge celebration can pop up from
 /// anywhere (after a ride is saved, a challenge is completed, etc.) without
@@ -288,40 +289,23 @@ class _BadgeEarnedDialogState extends State<_BadgeEarnedDialog> with SingleTicke
               Text('BADGE UNLOCKED', style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 2.4)),
               const SizedBox(height: 20),
               SizedBox(
-                width: 150,
-                height: 150,
+                width: 220,
+                height: 220,
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
                     RotationTransition(
                       turns: _spin,
                       child: Container(
-                        width: 150,
-                        height: 150,
+                        width: 200,
+                        height: 200,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          gradient: SweepGradient(colors: [color.withValues(alpha: 0), color.withValues(alpha: .55), color.withValues(alpha: 0)]),
+                          gradient: SweepGradient(colors: [color.withValues(alpha: 0), color.withValues(alpha: .28), color.withValues(alpha: 0)]),
                         ),
                       ),
                     ),
-                    Container(
-                      width: 116,
-                      height: 116,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: RadialGradient(colors: [color.withValues(alpha: .38), const Color(0xff141414)]),
-                        border: Border.all(color: color, width: 3),
-                      ),
-                      child: Icon(widget.def.icon, color: color, size: 54),
-                    ),
-                    Positioned(
-                      bottom: 6,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                        decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(20)),
-                        child: Text(widget.tier.label.toUpperCase(), style: const TextStyle(color: Colors.black, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: .8)),
-                      ),
-                    ),
+                    BadgeMedal(tier: widget.tier, icon: widget.def.icon, size: 220, showLabel: true),
                   ],
                 ),
               ),

@@ -2,6 +2,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'notification_router.dart';
 import 'notification_service.dart';
 
 /// Push notifications via Firebase Cloud Messaging — for things that
@@ -50,7 +51,15 @@ class PushNotificationService {
     // needed for push to work at all.
     FirebaseMessaging.onMessageOpenedApp.listen((message) {
       if (kDebugMode) print('PushNotificationService: notification tapped — ${message.data}');
+      NotificationRouter.handlePush(Map<String, dynamic>.from(message.data));
     });
+
+    // App was fully closed and opened by tapping a push: wait a moment for
+    // the first screen to appear, then go where the push points.
+    final initial = await FirebaseMessaging.instance.getInitialMessage();
+    if (initial != null) {
+      Future<void>.delayed(const Duration(seconds: 2), () => NotificationRouter.handlePush(Map<String, dynamic>.from(initial.data)));
+    }
 
     // Registers a device's token whenever it's known or changes —
     // called below both immediately (covers an already-signed-in user

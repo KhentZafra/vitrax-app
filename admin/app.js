@@ -83,15 +83,15 @@
   // ----------------------------------------------- generic table + paging
   function table(cols, rows, emptyText = 'Nothing here yet.') {
     if (!rows.length) return `<div class="tablewrap"><div class="empty">${esc(emptyText)}</div></div>`;
-    return `<div class="tablewrap"><table><thead><tr>${cols.map((c) => `<th>${esc(c.h)}</th>`).join('')}</tr></thead><tbody>${
+    return `<div class="tablewrap"><table><thead><tr>${cols.map((c) => `<th>${c.ico || ''}${esc(c.h)}</th>`).join('')}</tr></thead><tbody>${
       rows.map((r) => `<tr>${cols.map((c) => `<td class="${c.cls || ''}">${c.f(r)}</td>`).join('')}</tr>`).join('')
     }</tbody></table></div>`;
   }
   function pager(total, page) {
     const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
     return `<div class="pager"><span>${total} total · page ${page + 1} of ${pages}</span>
-      <button class="btn small-btn" data-act="page" data-dir="-1" ${page <= 0 ? 'disabled' : ''}>Prev</button>
-      <button class="btn small-btn" data-act="page" data-dir="1" ${page + 1 >= pages ? 'disabled' : ''}>Next</button></div>`;
+      <button class="btn small-btn" data-act="page" data-dir="-1" aria-label="Previous page" ${page <= 0 ? 'disabled' : ''}>${I('<path d="m15 18-6-6 6-6"/>')}</button>
+      <button class="btn small-btn" data-act="page" data-dir="1" aria-label="Next page" ${page + 1 >= pages ? 'disabled' : ''}>${I('<path d="m9 18 6-6-6-6"/>')}</button></div>`;
   }
 
   /** Server-side paged fetch; falls back to no ordering if the column does not exist. */
@@ -117,22 +117,37 @@
   let view = { name: 'dashboard', page: 0, filters: {} };
   let usersAll = [];       // merged auth + profile rows (Users page)
 
+  const I = (d) => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+  const ICONS = {
+    dashboard: I('<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/>'),
+    users: I('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17.5" cy="9" r="2.5"/><path d="M17 14.2c2.7.2 4.5 2.1 4.5 5.3"/>'),
+    activities: I('<path d="M2 12h4l3-8 5 16 3-8h5"/>'),
+    feed: I('<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>'),
+    comments: I('<path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-5.4A8 8 0 1 1 21 12Z"/><path d="M8 11h.01M12 11h.01M16 11h.01"/>'),
+    hazards: I('<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/>'),
+    challenges: I('<path d="M8 21h8M12 17v4"/><path d="M7 4h10v5a5 5 0 0 1-10 0V4Z"/><path d="M7 6H4v1a3 3 0 0 0 3 3M17 6h3v1a3 3 0 0 1-3 3"/>'),
+    reports: I('<path d="M5 21V4"/><path d="M5 4h13l-2.5 4L18 12H5"/>'),
+    flagged: I('<path d="M12 3 4 6v6c0 4.6 3.2 8 8 9 4.8-1 8-4.4 8-9V6l-8-3Z"/><path d="m9 12 2 2 4-4"/>'),
+    audit: I('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>'),
+    suspended: I('<circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/>'),
+    shared: I('<circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="m8.2 10.8 7.6-3.6M8.2 13.2l7.6 3.6"/>'),
+  };
   const PAGES = {
-    dashboard: { title: 'Dashboard', icon: '📊' },
-    users: { title: 'Users', icon: '👥' },
-    activities: { title: 'Activities', icon: '🚴' },
-    feed: { title: 'Feed posts', icon: '📰' },
-    comments: { title: 'Comments', icon: '💬' },
-    hazards: { title: 'Hazards', icon: '⚠️' },
-    challenges: { title: 'Challenges', icon: '🏆' },
-    reports: { title: 'Reports', icon: '🚩' },
-    flagged: { title: 'Flagged users', icon: '🛡️' },
-    audit: { title: 'Audit log', icon: '📜' },
+    dashboard: { title: 'Dashboard', icon: ICONS.dashboard },
+    users: { title: 'Users', icon: ICONS.users },
+    activities: { title: 'Activities', icon: ICONS.activities },
+    feed: { title: 'Feed posts', icon: ICONS.feed },
+    comments: { title: 'Comments', icon: ICONS.comments },
+    hazards: { title: 'Hazards', icon: ICONS.hazards },
+    challenges: { title: 'Challenges', icon: ICONS.challenges },
+    reports: { title: 'Reports', icon: ICONS.reports },
+    flagged: { title: 'Flagged users', icon: ICONS.flagged },
+    audit: { title: 'Audit log', icon: ICONS.audit },
   };
 
   function renderNav() {
     $('#nav').innerHTML = Object.entries(PAGES).map(([k, p]) =>
-      `<a href="#/${k}" class="${view.name === k ? 'active' : ''}"><span>${p.icon}</span>${esc(p.title)}</a>`).join('');
+      `<a href="#/${k}" class="${view.name === k ? 'active' : ''}">${p.icon}<span>${esc(p.title)}</span></a>`).join('');
   }
 
   async function go() {
@@ -143,6 +158,7 @@
   async function render() {
     renderNav();
     $('#page-title').textContent = PAGES[view.name].title;
+    $('#page-ico').innerHTML = PAGES[view.name].icon || ''; $('#page-sub').textContent = '';
     const page = $('#page');
     page.innerHTML = '<p class="muted">Loading…</p>';
     try { await renderers[view.name](page); } catch (e) { page.innerHTML = `<div class="error">Could not load this page: ${esc(e.message || e)}</div>`; console.error(e); }
@@ -160,7 +176,8 @@
       count('profiles'), count('activities'), count('activities', (q) => q.eq('shared', true)), count('community_posts'),
       count('feed_comments'), count('hazards'), count('challenges'), count('chat_reports'), count('profiles', (q) => q.eq('is_suspended', true)),
     ]);
-    const stat = (label, v, href) => `<a class="stat" href="${href}" style="text-decoration:none;color:inherit"><span>${label}</span><b>${v}</b></a>`;
+    const statIcon = { 'Users': ICONS.users, 'Suspended': ICONS.suspended, 'Activities': ICONS.activities, 'Shared activities': ICONS.shared, 'Feed posts': ICONS.feed, 'Comments': ICONS.comments, 'Hazard reports': ICONS.hazards, 'Challenges': ICONS.challenges, 'User reports': ICONS.reports };
+    const stat = (label, v, href) => `<a class="stat" href="${href}"><span class="stat-ico">${statIcon[label] || ''}</span><span class="stat-txt"><span>${label}</span><b>${v}</b></span></a>`;
 
     // signups per day, last 14 days
     let bars = '<p class="muted">Sign-up chart unavailable (run 018_admin.sql).</p>';
@@ -449,14 +466,23 @@
   }
 
   // ===================================================== PAGE: audit log
-  async function renderAudit(page) { page.innerHTML = '<p class="muted small">Every admin action is recorded here and cannot be edited or deleted from the website.</p><div id="list"></div>'; await drawAudit(); }
+  const ago = (iso) => { if (!iso) return ''; const s = Math.max(0, (Date.now() - new Date(iso)) / 1000); if (s < 60) return 'just now'; const u = [[60, 'minute'], [3600, 'hour'], [86400, 'day'], [2592000, 'month'], [31536000, 'year']]; let k = 0; while (k + 1 < u.length && s >= u[k + 1][0]) k++; const n = Math.floor(s / u[k][0]); return `${n} ${u[k][1]}${n > 1 ? 's' : ''} ago`; };
+  const TARGET_LABEL = { 'auth.users': 'User ID', profiles: 'User ID', activities: 'Activity ID', community_posts: 'Post ID', comments: 'Comment ID', hazards: 'Hazard ID', challenges: 'Challenge ID', reports: 'Report ID' };
+  async function renderAudit(page) {
+    $('#page-sub').textContent = 'Every admin action is recorded here and cannot be edited or deleted from the website.';
+    page.innerHTML = '<div id="list"></div>'; await drawAudit();
+  }
   async function drawAudit() {
     const { rows, count } = await fetchPage('admin_audit_log', { order: 'created_at', page: view.page });
+    await loadPeople(rows.map((r) => r.admin_id));
+    const ic = (d) => I(d);
     $('#list').innerHTML = table([
-      { h: 'When', f: (r) => fmt(r.created_at) }, { h: 'Admin', f: (r) => esc(r.admin_email || short(r.admin_id)) },
-      { h: 'Action', f: (r) => badge(r.action, /delete|suspend|revoke/.test(r.action) ? 'red' : 'blue') },
-      { h: 'Target', cls: 'wrap', f: (r) => esc((r.target_table || '') + (r.target_id ? ' · ' + short(r.target_id) : '')) },
-      { h: 'Details', cls: 'wrap', f: (r) => `<span class="muted small">${esc(JSON.stringify(r.details || {}).slice(0, 160))}</span>` },
+      { h: 'When', ico: ic('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'), cls: 'au-when', f: (r) => `<span class="au-ico">${ic('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>')}</span><div><div class="au-main">${esc(fmt(r.created_at))}</div><div class="au-sub">${esc(ago(r.created_at))}</div></div>` },
+      { h: 'Admin', ico: ic('<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'), cls: 'au-admin', f: (r) => { const em = r.admin_email || short(r.admin_id); return `${avatar(people.get(r.admin_id), r.admin_id ? nameOf(r.admin_id) : em)}<div><div class="au-main">${esc(em)}</div><div class="au-sub">Admin</div></div>`; } },
+      { h: 'Action', ico: ic('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>'),
+        f: (r) => { const bad = /delete|suspend|revoke/.test(r.action || ''); const a = String(r.action || '').replace(/_/g, ' '); return `<span class="au-pill ${bad ? 'red' : 'blue'}">${bad ? ic('<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>') : ''}${esc(a)}</span>`; } },
+      { h: 'Target', ico: ic('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>'), cls: 'wrap', f: (r) => `<div class="au-main">${esc(r.target_table || '—')}${r.target_id ? ' &bull; ' + esc(short(r.target_id)) : ''}</div><div class="au-sub">${esc(TARGET_LABEL[r.target_table] || 'ID')}</div>` },
+      { h: 'Details', ico: ic('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>'), cls: 'wrap', f: (r) => { const t = JSON.stringify(r.details || {}); return `<div class="au-details"><code>${esc(t.length > 160 ? t.slice(0, 160) + '…' : t)}</code><button class="au-copy" data-act="copy" data-text="${esc(t)}" aria-label="Copy details">${ic('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>')}</button></div>`; } },
     ], rows, 'No admin actions yet.') + pager(count, view.page);
   }
 
@@ -477,6 +503,7 @@
 
   const actions = {
     'view-user': (id) => showUser(id),
+    copy: async (_, el) => { try { await navigator.clipboard.writeText(el.dataset.text || ''); toast('Copied.'); } catch (e) { toast('Could not copy.', true); } },
     page: async (_, btn) => { view.page += Number(btn.dataset.dir); if (view.name === 'users') drawUsers(); else await refreshList(); },
     'toggle-suspend': async (id) => {
       await loadPeople([id]);

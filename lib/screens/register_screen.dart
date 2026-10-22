@@ -292,7 +292,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("No internet connection. Please check your network."),
+          content: Text("No Internet connection, Please connect it to the internet"),
+          backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -494,18 +495,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   margin: const EdgeInsets.only(bottom: 25),
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(.15),
+                    color: Colors.red.withValues(alpha: .15),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.blue),
+                    border: Border.all(color: Colors.red),
                   ),
                   child: const Row(
                     children: [
-                      Icon(Icons.wifi_off, color: Colors.blue),
+                      Icon(Icons.wifi_off, color: Colors.red),
                       SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          "You're offline. Please connect to the internet to create an account.",
-                          style: TextStyle(color: Colors.blue),
+                          "No Internet connection, Please connect it to the internet",
+                          style: TextStyle(color: Colors.red),
                         ),
                       ),
                     ],

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../widgets/skeleton_views.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -90,7 +91,7 @@ class _ChatConversationsListState extends State<ChatConversationsList> {
   @override
   Widget build(BuildContext context) {
     return _isLoading
-        ? const Center(child: CircularProgressIndicator(color: Colors.blue))
+        ? const ListSkeleton()
         : RefreshIndicator(
             onRefresh: _load,
             child: _conversations.isEmpty

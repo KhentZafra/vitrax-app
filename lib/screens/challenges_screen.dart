@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/skeleton_views.dart';
 
 import '../models/challenge.dart';
 import '../services/challenge_service.dart';
@@ -78,7 +79,7 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
         ),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.blue))
+          ? const CardsSkeleton()
           : RefreshIndicator(
               onRefresh: _load,
               child: ListView(

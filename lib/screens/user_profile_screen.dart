@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/skeleton_views.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/community_impact_service.dart';
@@ -77,7 +78,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.blue))
+          ? const ProfileSkeleton()
           : ListView(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
               children: [

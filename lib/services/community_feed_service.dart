@@ -49,6 +49,18 @@ class CommunityFeedService {
     );
   }
 
+  /// One post by id (used when a notification is tapped and the post is not
+  /// in the feed that is already loaded). [kind] is 'activity' or 'post'.
+  /// Returns null if it no longer exists.
+  static Future<FeedItem?> fetchOne(String kind, String id) async {
+    final currentUserId = _supabase.auth.currentUser?.id;
+    final list = await _safeFetch(
+      () => kind == 'activity' ? _fetchActivityShares(currentUserId, null, 1, onlyId: id) : _fetchStandalonePosts(currentUserId, null, 1, onlyId: id),
+      label: 'single post',
+    );
+    return list.isEmpty ? null : list.first.item;
+  }
+
   static Future<List<_Dated>> _safeFetch(Future<List<_Dated>> Function() fetch, {required String label}) async {
     try {
       return await fetch();
@@ -62,11 +74,12 @@ class CommunityFeedService {
     }
   }
 
-  static Future<List<_Dated>> _fetchActivityShares(String? currentUserId, String? before, int limit) async {
+  static Future<List<_Dated>> _fetchActivityShares(String? currentUserId, String? before, int limit, {String? onlyId}) async {
     var query = _supabase
         .from('activities')
         .select('*, profiles(first_name, last_name, avatar_url)')
         .eq('shared', true);
+    if (onlyId != null) query = query.eq('id', onlyId);
     if (before != null) query = query.lt('created_at', before);
     final rows = await query.order('created_at', ascending: false).limit(limit);
 
@@ -140,10 +153,11 @@ class CommunityFeedService {
     }
   }
 
-  static Future<List<_Dated>> _fetchStandalonePosts(String? currentUserId, String? before, int limit) async {
+  static Future<List<_Dated>> _fetchStandalonePosts(String? currentUserId, String? before, int limit, {String? onlyId}) async {
     var query = _supabase
         .from('community_posts')
         .select('*, profiles(first_name, last_name, avatar_url)');
+    if (onlyId != null) query = query.eq('id', onlyId);
     if (before != null) query = query.lt('created_at', before);
     final rows = await query.order('created_at', ascending: false).limit(limit);
 

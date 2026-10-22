@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/skeleton_views.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -70,7 +71,7 @@ class AllActivitiesScreen extends StatelessWidget {
             final activities = provider.allActivities;
 
             if (provider.isLoading && activities.isEmpty) {
-              return const Center(child: CircularProgressIndicator(color: Colors.blue));
+              return const ListSkeleton();
             }
 
             if (activities.isEmpty) {

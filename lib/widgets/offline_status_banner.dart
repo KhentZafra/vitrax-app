@@ -74,23 +74,23 @@ class _OfflineStatusBannerState extends State<OfflineStatusBanner> {
 
     final isOffline = _offline;
     final label = isOffline
-        ? (pendingCount > 0 ? 'Offline Mode Active — $pendingCount saved locally' : 'Offline Mode Active — Local Caching Secure')
+        ? (pendingCount > 0 ? 'No Internet connection, Please connect it to the internet ($pendingCount saved locally)' : 'No Internet connection, Please connect it to the internet')
         : 'Sync Complete — Community Updated';
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 250),
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-      color: isOffline ? const Color(0xff3D2A0A) : const Color(0xff0F2E1A),
+      color: isOffline ? const Color(0xff4A0F12) : const Color(0xff0F2E1A),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(isOffline ? Icons.cloud_off : Icons.check_circle, size: 15, color: isOffline ? Colors.blue : Colors.greenAccent),
+          Icon(isOffline ? Icons.cloud_off : Icons.check_circle, size: 15, color: isOffline ? Colors.redAccent : Colors.greenAccent),
           const SizedBox(width: 8),
           Flexible(
             child: Text(
               label,
-              style: TextStyle(color: isOffline ? Colors.lightBlue.shade200 : Colors.greenAccent.shade100, fontSize: 12, fontWeight: FontWeight.w600),
+              style: TextStyle(color: isOffline ? Colors.redAccent.shade100 : Colors.greenAccent.shade100, fontSize: 12, fontWeight: FontWeight.w600),
               overflow: TextOverflow.ellipsis,
             ),
           ),

@@ -1414,3 +1414,53 @@ class _RecordNavTab extends StatelessWidget {
     );
   }
 }
+
+
+/// A single post on its own screen. Opened from a notification (someone
+/// liked or reshared it) or a push tap. [openComments] also pops up the
+/// comments straight away (used for comment and reply notifications).
+class FeedPostScreen extends StatefulWidget {
+  final FeedItem item;
+  final bool openComments;
+  const FeedPostScreen({super.key, required this.item, this.openComments = false});
+
+  @override
+  State<FeedPostScreen> createState() => _FeedPostScreenState();
+}
+
+class _FeedPostScreenState extends State<FeedPostScreen> {
+  late FeedItem _item = widget.item;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.openComments) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) showFeedCommentsSheet(context, item: _item, onCountChanged: _setCount);
+      });
+    }
+  }
+
+  void _setCount(int n) {
+    if (mounted && _item.commentCount != n) setState(() => _item = _item.copyWith(commentCount: n));
+  }
+
+  Future<void> _like() async {
+    final before = _item;
+    setState(() => _item = before.copyWith(likedByMe: !before.likedByMe, likeCount: before.likedByMe ? before.likeCount - 1 : before.likeCount + 1));
+    final r = await CommunityFeedService.toggleLike(before, currentlyLiked: before.likedByMe);
+    if (r == null && mounted) setState(() => _item = before);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xff050505),
+      appBar: AppBar(backgroundColor: const Color(0xff050505), foregroundColor: Colors.white, title: const Text('Post')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [_FeedItemCard(item: _item, onLike: _like, onCommentCount: _setCount, onReshared: () {})],
+      ),
+    );
+  }
+}

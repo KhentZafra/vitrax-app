@@ -1,13 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../widgets/skeleton_views.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/feed_item.dart';
 import '../models/feed_notification.dart';
 import '../services/feed_notification_service.dart';
+import '../services/notification_router.dart';
 import '../services/table_watcher.dart';
-import '../widgets/feed_comments_sheet.dart';
 import '../widgets/user_avatar.dart';
 
 /// Who liked, commented on, replied to or reshared your feed posts.
@@ -82,12 +83,11 @@ class _FeedNotificationsScreenState extends State<FeedNotificationsScreen> {
   }
 
   void _open(FeedNotification n) {
-    if (n.type != 'comment' && n.type != 'reply') return;
+    // Use the copy already loaded in the feed when there is one; otherwise
+    // the router fetches the post. Likes and reshares open the post too.
     final kind = n.postKind == 'activity' ? FeedItemKind.activityShare : FeedItemKind.standalonePost;
     final matches = widget.items.where((i) => i.id == n.postId && i.kind == kind);
-    if (matches.isEmpty) return;
-    final item = matches.first;
-    showFeedCommentsSheet(context, item: item, onCountChanged: (c) => widget.onCommentCount(item, c));
+    NotificationRouter.openFeed(n, known: matches.isEmpty ? null : matches.first);
   }
 
   @override
@@ -100,7 +100,7 @@ class _FeedNotificationsScreenState extends State<FeedNotificationsScreen> {
         title: const Text('Notifications'),
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator(color: Colors.blue))
+          ? const ListSkeleton()
           : _list.isEmpty
               ? Center(child: Text('No notifications yet.', style: TextStyle(color: Colors.grey.shade500)))
               : RefreshIndicator(

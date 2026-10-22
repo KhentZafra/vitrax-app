@@ -1,3 +1,5 @@
+import 'dart:async';
+
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -8,6 +10,8 @@ import '../models/achievement.dart';
 import '../models/activity.dart';
 import '../providers/activity_provider.dart';
 import '../services/badge_service.dart';
+import '../widgets/badge_medal.dart';
+import '../widgets/skeleton_views.dart';
 import '../services/community_impact_service.dart';
 import '../widgets/route_nav_icon.dart';
 import '../widgets/user_avatar.dart';
@@ -49,6 +53,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   CommunityImpactStats? _stats;
   Map<String, int>? _badgeStats;
   bool _isLoading = true;
+  bool _offline = false; // profile could not be fetched (no internet): keep the skeleton and retry
+  Timer? _retry;
 
   _ProfileTab _tab = _ProfileTab.overview;
   ActivityType? _activityFilter; // null = All, for the Activities tab
@@ -59,20 +65,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _retry?.cancel();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     final user = _supabase.auth.currentUser;
     if (user == null) return;
 
     setState(() => _isLoading = true);
 
+    var profileFailed = false;
     try {
-      final profile = await _supabase.from('profiles').select('first_name, last_name, avatar_url').eq('id', user.id).maybeSingle();
+      final profile = await _supabase.from('profiles').select('first_name, last_name, avatar_url').eq('id', user.id).maybeSingle().timeout(const Duration(seconds: 8));
       final first = profile?['first_name'] as String? ?? '';
       final last = profile?['last_name'] as String? ?? '';
       _name = ('$first $last').trim();
       _avatarUrl = profile?['avatar_url'] as String?;
     } catch (_) {
       _name = '';
+      profileFailed = true;
     }
 
     _email = user.email ?? '';
@@ -85,9 +99,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _memberSince = null;
     }
 
-    _stats = await CommunityImpactService.fetchStats(user.id);
-    _badgeStats = await BadgeService.fetchStats();
-    BadgeService.check();
+    if (!profileFailed) {
+      try {
+        _stats = await CommunityImpactService.fetchStats(user.id).timeout(const Duration(seconds: 8));
+        _badgeStats = await BadgeService.fetchStats().timeout(const Duration(seconds: 8));
+      } catch (_) {
+        profileFailed = true;
+      }
+      BadgeService.check();
+    }
 
     // Make sure ActivityProvider has data to show even if this is the
     // first screen visited this session.
@@ -96,7 +116,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     if (!mounted) return;
-    setState(() => _isLoading = false);
+    setState(() {
+      _isLoading = false;
+      _offline = profileFailed;
+    });
+    // No internet: stay on the skeleton and try again until it works.
+    _retry?.cancel();
+    if (profileFailed) _retry = Timer(const Duration(seconds: 6), () { if (mounted) _load(); });
   }
 
   Future<void> _signOut() async {
@@ -172,8 +198,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.blue))
+      body: (_isLoading || _offline)
+          ? const ProfileSkeleton()
           : RefreshIndicator(
               onRefresh: _load,
               child: Consumer<ActivityProvider>(
@@ -720,11 +746,7 @@ class _BadgeCard extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(color: badge.tier.color.withValues(alpha: .15), shape: BoxShape.circle),
-                    child: Icon(badge.icon, color: badge.isLocked ? Colors.grey.shade600 : badge.tier.color, size: 26),
-                  ),
+                  BadgeMedal(tier: badge.tier, icon: badge.icon, size: 84),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -772,7 +794,7 @@ class _BadgeCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(badge.icon, color: locked ? Colors.grey.shade700 : badge.tier.color, size: 26),
+            Center(child: BadgeMedal(tier: badge.tier, icon: badge.icon, size: 74)),
             const Spacer(),
             Text(badge.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
             const SizedBox(height: 2),

@@ -440,23 +440,23 @@ class _OfflineBanner extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 20),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.blue.withValues(alpha: .15),
+        color: Colors.red.withValues(alpha: .15),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.blue),
+        border: Border.all(color: Colors.red),
       ),
       child: Row(
         children: [
-          const Icon(Icons.wifi_off, color: Colors.blue),
+          const Icon(Icons.wifi_off, color: Colors.red),
           const SizedBox(width: 10),
           const Expanded(
             child: Text(
-              "You're offline. Showing available data.",
-              style: TextStyle(color: Colors.blue),
+              "No Internet connection, Please connect it to the internet",
+              style: TextStyle(color: Colors.red),
             ),
           ),
           TextButton(
             onPressed: onRetry,
-            child: const Text('Retry', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.w600)),
+            child: const Text('Retry', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600)),
           ),
         ],
       ),
