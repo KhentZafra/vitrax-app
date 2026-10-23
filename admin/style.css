@@ -190,3 +190,8 @@ td.au-admin .avatar { width: 46px; height: 46px; font-size: 15px; margin-right: 
 .pager .small-btn { width: 46px; height: 46px; padding: 0; display: grid; place-items: center; border-radius: 12px; border: 1px solid rgba(47,123,255,.6); background: rgba(10,30,80,.6); color: #fff; }
 .pager .small-btn .ico { width: 20px; height: 20px; }
 .pager { color: #dfe9ff; font-size: 15px; margin-top: 14px; }
+
+/* Keep Leaflet panes (z-index up to 1000) below dialogs */
+#map { position: relative; z-index: 0; isolation: isolate; }
+.modal, .modal.dialog { z-index: 2000; }
+.toast { z-index: 2100; }

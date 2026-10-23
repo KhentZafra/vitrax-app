@@ -131,6 +131,22 @@ class NotificationService {
     }
   }
 
+  /// One notice for a crowded area (many hazards together), so the rider
+  /// gets a single notification instead of one per hazard.
+  static Future<void> showAreaHazards(int count) async {
+    if (!_initialized) return;
+    try {
+      await _plugin.show(
+        1003,
+        'Hazards in this area',
+        '$count reported hazards here. Ride carefully.',
+        const NotificationDetails(android: _hazardChannel, iOS: DarwinNotificationDetails()),
+      );
+    } catch (e) {
+      if (kDebugMode) print('NotificationService.showAreaHazards failed: $e');
+    }
+  }
+
   /// Clears a previously-shown notification — call when the in-app
   /// dialog/banner it mirrors gets resolved (dismissed, answered, or
   /// the underlying condition clears on its own), so a stale system

@@ -110,6 +110,45 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
   final Set<String> _sessionPromptedHazardIds = {};
   HazardReport? _proximityPrompt;
   bool _proximityBusy = false;
+
+  // Several different hazards in the same spot (e.g. a pothole, aggressive
+  // dogs and flooding): announced once as a group, then asked about one by
+  // one, nearest first. [_zoneTotal] / [_zoneDone] drive the "1 of 3" label.
+  final Set<String> _zoneAnnouncedKeys = {};
+
+  // Crowded areas (many hazards close together): one summary, at most
+  // [_maxQuestionsPerArea] questions per area, and no repeated "inside"
+  // notices, so the rider is not flooded with sound and notifications.
+  static const _maxQuestionsPerArea = 3;
+  static const _crowdedAt = 4; // this many hazards here counts as crowded
+  static const _areaRadiusMeters = 150.0;
+  static const _areaCountMeters = 80.0; // hazards within this distance count as "in the area"
+  int _areaSummaryTotal = 0;
+  DateTime? _areaSummaryAt;
+  LatLng? _areaCenter;
+  int _areaQuestionsLeft = _maxQuestionsPerArea;
+  bool _areaSummarized = false;
+  DateTime? _lastInsideNoticeAt;
+  int _zoneTotal = 0;
+  int _zoneDone = 0;
+  DateTime? _zoneLastAnswerAt;
+
+  /// "a", "a and b", "a, b and c".
+  String _joinLabels(List<String> labels) {
+    if (labels.length <= 1) return labels.join();
+    return '${labels.sublist(0, labels.length - 1).join(', ')} and ${labels.last}';
+  }
+
+  void _zoneAnswered() {
+    if (_zoneTotal > 1) {
+      _zoneDone++;
+      _zoneLastAnswerAt = DateTime.now();
+      if (_zoneDone >= _zoneTotal) {
+        _zoneTotal = 0;
+        _zoneDone = 0;
+      }
+    }
+  }
   static const _proximityTriggerMeters = 40.0;
 
   // ---- Early "heads-up" awareness (stage 1) ----
@@ -815,7 +854,69 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
 
     _maybeReloadHazards(current);
 
-    for (final cluster in _communityClusters) {
+    double distTo(HazardCluster c) => Geolocator.distanceBetween(
+          current.latitude,
+          current.longitude,
+          c.center.latitude,
+          c.center.longitude,
+        );
+    // Nearest first, so a spot with several hazards is handled in order.
+    final ordered = [..._communityClusters]..sort((a, b) => distTo(a).compareTo(distTo(b)));
+    // Hazards of different types that this position is inside of, that the
+    // rider still has to be told about or asked about.
+    final zone = <HazardCluster>[
+      for (final c in ordered)
+        if (distTo(c) <= (c.radiusMeters > _proximityTriggerMeters ? c.radiusMeters : _proximityTriggerMeters) &&
+            !_clusterFullyHandled(c) &&
+            c.reports.any((r) => r.id != null && !_handledHazardIds.contains(r.id) && !_sessionPromptedHazardIds.contains(r.id)))
+          c,
+    ];
+
+    // Every hazard this position is inside of (handled or not).
+    final insideAll = <HazardCluster>[
+      for (final c in ordered)
+        if (distTo(c) <= (c.radiusMeters > _areaCountMeters ? c.radiusMeters : _areaCountMeters)) c,
+    ];
+    // Count individual reports (a merged pin can hold several), not pins.
+    final totalReports = insideAll.fold<int>(0, (n, c) => n + c.count);
+    final crowded = totalReports >= _crowdedAt;
+
+    // A new area (moved well away from the last one): fresh question budget.
+    final center = _areaCenter;
+    if (center == null ||
+        Geolocator.distanceBetween(center.latitude, center.longitude, current.latitude, current.longitude) > _areaRadiusMeters) {
+      _areaCenter = current;
+      _areaQuestionsLeft = _maxQuestionsPerArea;
+      _areaSummarized = false;
+      _areaSummaryTotal = 0;
+    }
+
+    // Crowded area: ONE spoken + on-screen + notification summary instead of
+    // a message for every hazard.
+    final grew = totalReports >= _areaSummaryTotal + 3 &&
+        (_areaSummaryAt == null || DateTime.now().difference(_areaSummaryAt!) > const Duration(seconds: 20));
+    if (crowded && (!_areaSummarized || grew)) {
+      _areaSummarized = true;
+      _areaSummaryTotal = totalReports;
+      _areaSummaryAt = DateTime.now();
+      final byType = <String, int>{};
+      for (final c in insideAll) {
+        byType.update(c.type.label.toLowerCase(), (n) => n + c.count, ifAbsent: () => c.count);
+      }
+      final top = byType.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+      final parts = top.take(3).map((e) => '${e.value} ${e.key}').toList();
+      final more = top.length > 3 ? ' and other hazards' : '';
+      final summary = 'Caution. $totalReports reported hazards in this area: ${_joinLabels(parts)}$more. Ride carefully.';
+      _showSnack(summary);
+      NotificationService.showAreaHazards(totalReports);
+      TtsService.speak(summary, important: true);
+      for (final c in insideAll) {
+        _sessionWarnedHazardKeys.add(_clusterKey(c));
+        _sessionInsideAnnouncedKeys.add(_clusterKey(c));
+      }
+    }
+
+    for (final cluster in ordered) {
       final distance = Geolocator.distanceBetween(
         current.latitude,
         current.longitude,
@@ -850,6 +951,10 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
         // Tell the rider they are inside the area (statement only, no
         // question), once per hazard per recording.
         if (_sessionInsideAnnouncedKeys.add(_clusterKey(cluster))) {
+          final now = DateTime.now();
+          final quietly = crowded || (_lastInsideNoticeAt != null && now.difference(_lastInsideNoticeAt!) < const Duration(seconds: 45));
+          if (quietly) continue; // crowded areas get one summary; others at most one notice per 45 s
+          _lastInsideNoticeAt = now;
           final label = cluster.type.label.toLowerCase();
           _showSnack('You are inside a reported $label area. Ride carefully.');
           NotificationService.showInsideHazard(label);
@@ -858,6 +963,16 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
         }
         continue;
       }
+
+      // Question budget: at most _maxQuestionsPerArea per area, the rest can
+      // still be confirmed by tapping their pins on the map.
+      if (_areaQuestionsLeft <= 0) {
+        _sessionWarnedHazardKeys.add(_clusterKey(cluster));
+        _sessionInsideAnnouncedKeys.add(_clusterKey(cluster));
+        continue;
+      }
+      final askCount = zone.length < _areaQuestionsLeft ? zone.length : _areaQuestionsLeft;
+      _areaQuestionsLeft--;
 
       setState(() {
         _sessionPromptedHazardIds.add(candidate.id!);
@@ -868,9 +983,31 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
       // Mirrors the in-app banner as a system notification, same reason
       // as the stillness alert above — the banner only renders while
       // this screen is on top and visible.
-      NotificationService.showHazardNearby(candidate.type.label.toLowerCase());
+      final candLabel = candidate.type.label.toLowerCase();
+      var question = "You're at a reported $candLabel. Is it still there? Say yes or no.";
+      var notify = true;
+      final recentlyAnswered = _zoneLastAnswerAt != null && DateTime.now().difference(_zoneLastAnswerAt!) < const Duration(seconds: 60);
+      if (_zoneTotal > 1 && _zoneDone > 0 && _zoneDone < _zoneTotal && recentlyAnswered) {
+        question = 'Next, is the $candLabel still there? Say yes or no.';
+        notify = false; // one notification for the whole group, not one per hazard
+      } else if (askCount >= 2 || crowded) {
+        _zoneAnnouncedKeys.add((zone.map(_clusterKey).toList()..sort()).join('|'));
+        _zoneTotal = askCount;
+        _zoneDone = 0;
+        if (crowded) {
+          question = "I'll check the nearest $askCount. First, is the $candLabel still there? Say yes or no.";
+        } else {
+          final labels = zone.take(askCount).map((c) => c.type.label.toLowerCase()).toList();
+          question = 'Caution. $askCount hazards here: ${_joinLabels(labels)}. First, is the $candLabel still there? Say yes or no.';
+          _showSnack('$askCount hazards here: ${_joinLabels(labels)}.');
+        }
+      } else {
+        _zoneTotal = 0;
+        _zoneDone = 0;
+      }
+      if (notify && !crowded) NotificationService.showHazardNearby(candLabel);
       TtsService.speakThen(
-        "You're at a reported ${candidate.type.label.toLowerCase()}. Is it still there? Say yes or no.",
+        question,
         () => VoiceCommandService.listenForYesNo(
           onYes: () => _respondToProximityPrompt(stillHere: true),
           onNo: () => _respondToProximityPrompt(stillHere: false),
@@ -959,8 +1096,27 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
 
     final label = best.type.label.toLowerCase();
     final distanceText = _awarenessDistanceLabel(bestDistance);
-    _showSnack('Caution: $label reported $distanceText away.');
-    TtsService.speak('Caution: $label reported $distanceText away.');
+
+    // Other hazards in the same place (within ~100 m of this one): one
+    // combined heads-up instead of a separate message for each.
+    final groupLabels = <String>[label];
+    var groupCount = 1;
+    for (final c in _communityClusters) {
+      if (identical(c, best)) continue;
+      final k = _clusterKey(c);
+      if (_sessionWarnedHazardKeys.contains(k) || _clusterFullyHandled(c)) continue;
+      final apart = Geolocator.distanceBetween(best.center.latitude, best.center.longitude, c.center.latitude, c.center.longitude);
+      if (apart > 100) continue;
+      _sessionWarnedHazardKeys.add(k);
+      groupCount++;
+      final l = c.type.label.toLowerCase();
+      if (!groupLabels.contains(l)) groupLabels.add(l);
+    }
+    final message = groupCount > 1
+        ? 'Caution: $groupCount hazards reported $distanceText away: ${_joinLabels(groupLabels.take(3).toList())}${groupLabels.length > 3 ? ' and others' : ''}.'
+        : 'Caution: $label reported $distanceText away.';
+    _showSnack(message);
+    TtsService.speak(message);
   }
 
   Future<void> _respondToProximityPrompt({required bool stillHere}) async {
@@ -981,6 +1137,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
       _proximityBusy = false;
       _proximityPrompt = null;
     });
+    _zoneAnswered();
     NotificationService.cancelHazardAlert();
 
     // Whether it worked or not (a failure means it is yours or you already
@@ -1004,8 +1161,115 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     }
   }
 
+  /// Individual unconfirmed reports around the rider (within [_areaCountMeters]),
+  /// nearest first. Not limited to the 3 spoken questions.
+  List<HazardReport> _areaPendingReports() {
+    final here = _currentLatLng;
+    if (here == null) return const [];
+    final out = <MapEntry<double, HazardReport>>[];
+    for (final c in _communityClusters) {
+      for (final r in c.reports) {
+        if (r.id == null || _handledHazardIds.contains(r.id)) continue;
+        final d = Geolocator.distanceBetween(here.latitude, here.longitude, r.position.latitude, r.position.longitude);
+        if (d <= _areaCountMeters) out.add(MapEntry(d, r));
+      }
+    }
+    out.sort((a, b) => a.key.compareTo(b.key));
+    return [for (final e in out) e.value];
+  }
+
+  Future<void> _answerFromList(HazardReport r, bool stillHere) async {
+    final ok = stillHere ? await CommunityImpactService.verifyStillHere(r.id!) : await HazardService.confirmClear(r.id!);
+    _handledHazardIds.add(r.id!);
+    for (final c in _communityClusters) {
+      if (c.reports.any((x) => x.id == r.id)) {
+        _sessionInsideAnnouncedKeys.add(_clusterKey(c));
+        _sessionWarnedHazardKeys.add(_clusterKey(c));
+      }
+    }
+    if (!mounted) return;
+    _showSnack(ok ? 'Thanks! Recorded.' : "Couldn't record that. You may be the original reporter, or already answered.");
+  }
+
+  void _openAreaReview() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xff1b1b1b),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) {
+          final items = _areaPendingReports();
+          return SafeArea(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.7),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+                    child: Text(
+                      items.isEmpty ? 'All hazards here are confirmed' : '${items.length} hazards to confirm here',
+                      style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+                    child: Text('Nearest first. Tap Still here or Cleared for each.', style: TextStyle(color: Colors.white60, fontSize: 12)),
+                  ),
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: items.length,
+                      itemBuilder: (_, i) {
+                        final r = items[i];
+                        final here = _currentLatLng!;
+                        final d = Geolocator.distanceBetween(here.latitude, here.longitude, r.position.latitude, r.position.longitude).round();
+                        return ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: r.type.color,
+                            child: Icon(r.type.icon, color: Colors.white, size: 18),
+                          ),
+                          title: Text(r.type.label, style: const TextStyle(color: Colors.white)),
+                          subtitle: Text('$d m away', style: const TextStyle(color: Colors.white60)),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              TextButton(
+                                onPressed: () async {
+                                  await _answerFromList(r, false);
+                                  setSheet(() {});
+                                },
+                                child: const Text('Cleared'),
+                              ),
+                              FilledButton(
+                                onPressed: () async {
+                                  await _answerFromList(r, true);
+                                  setSheet(() {});
+                                },
+                                child: const Text('Still here'),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    ).then((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
   void _dismissProximityPrompt() {
     setState(() => _proximityPrompt = null);
+    _zoneAnswered();
     NotificationService.cancelHazardAlert();
   }
 
@@ -1166,7 +1430,9 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
         if (_pendingUndo == report) _pendingUndo = saved;
       });
     } else {
-      _showSnack('Hazard shown on your map, but could not be saved online.');
+      _showSnack(HazardService.lastReportRateLimited
+          ? 'Report limit reached. You can send up to 10 hazard reports an hour. Try again later.'
+          : 'Hazard shown on your map, but could not be saved online.');
     }
   }
 
@@ -1911,7 +2177,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'Is this ${_proximityPrompt!.type.label.toLowerCase()} still here?',
+                                'Is this ${_proximityPrompt!.type.label.toLowerCase()} still here?${_zoneTotal > 1 ? '  (${(_zoneDone + 1).clamp(1, _zoneTotal)} of $_zoneTotal)' : ''}',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 13,
@@ -1998,6 +2264,16 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
                           ),
                       ],
                     ),
+                  ),
+                ),
+              if (_proximityPrompt == null && _pendingUndo == null && _areaPendingReports().isNotEmpty)
+                Positioned(
+                  right: 16,
+                  bottom: 190,
+                  child: FilledButton.icon(
+                    onPressed: _openAreaReview,
+                    icon: const Icon(Icons.fact_check_outlined, size: 18),
+                    label: Text('Review ${_areaPendingReports().length} hazards here'),
                   ),
                 ),
               Positioned(

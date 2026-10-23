@@ -41,6 +41,8 @@ class ChatConversation {
   // you haven't opened this conversation since it arrived — sending the
   // last message yourself never counts as "unread" for you.
   final bool isUnread;
+  // True while this chat sits in "Archived chats" (per person).
+  final bool isArchived;
 
   ChatConversation({
     required this.id,
@@ -50,5 +52,6 @@ class ChatConversation {
     this.lastMessageBody,
     this.lastMessageAt,
     this.isUnread = false,
+    this.isArchived = false,
   });
 }

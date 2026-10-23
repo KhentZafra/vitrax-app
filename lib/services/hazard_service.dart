@@ -9,9 +9,14 @@ import '../models/hazard_report.dart';
 class HazardService {
   static final _supabase = Supabase.instance.client;
 
+  /// True when the last [report] failed because the user hit the hourly or
+  /// daily hazard limit (see supabase/025_hazard_rate_limit.sql).
+  static bool lastReportRateLimited = false;
+
   static Future<HazardReport?> report(HazardReport hazard, {String? activityId}) async {
     final user = _supabase.auth.currentUser;
     if (user == null) return null;
+    lastReportRateLimited = false;
 
     try {
       final inserted = await _supabase
@@ -21,7 +26,8 @@ class HazardService {
           .single();
 
       return hazard.copyWith(id: inserted['id'] as String);
-    } catch (_) {
+    } catch (e) {
+      lastReportRateLimited = e.toString().contains('hazard_rate_limit');
       return null;
     }
   }

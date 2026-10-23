@@ -32,7 +32,7 @@ class ChatService {
     try {
       final participantRows = await _supabase
           .from('conversation_participants')
-          .select('conversation_id, last_read_at')
+          .select('conversation_id, last_read_at, archived_at, deleted_at')
           .eq('user_id', currentUserId);
 
       final myRows = (participantRows as List).cast<Map<String, dynamic>>();
@@ -46,6 +46,16 @@ class ChatService {
       final myLastReadAt = <String, DateTime?>{
         for (final row in myRows)
           row['conversation_id'] as String: row['last_read_at'] != null ? DateTime.parse(row['last_read_at'] as String) : null,
+      };
+
+      final archivedIds = <String>{
+        for (final row in myRows)
+          if (row['archived_at'] != null) row['conversation_id'] as String,
+      };
+      // When I deleted a conversation: older messages are hidden from me.
+      final myDeletedAt = <String, DateTime>{
+        for (final row in myRows)
+          if (row['deleted_at'] != null) row['conversation_id'] as String: DateTime.parse(row['deleted_at'] as String),
       };
 
       final blockedIds = await _fetchMyBlockedIds();
@@ -71,12 +81,17 @@ class ChatService {
 
       final lastMessageByConversation = <String, Map<String, dynamic>>{};
       for (final row in (messageRows as List).cast<Map<String, dynamic>>()) {
+        final deletedAt = myDeletedAt[row['conversation_id'] as String];
+        if (deletedAt != null && !DateTime.parse(row['created_at'] as String).isAfter(deletedAt)) continue;
         // First hit per conversation_id is the newest, since we ordered
         // by created_at descending above.
         lastMessageByConversation.putIfAbsent(row['conversation_id'] as String, () => row);
       }
 
-      final conversations = otherByConversation.entries.map((entry) {
+      final conversations = otherByConversation.entries.where((entry) {
+        // A deleted conversation stays hidden until a newer message arrives.
+        return !myDeletedAt.containsKey(entry.key) || lastMessageByConversation.containsKey(entry.key);
+      }).map((entry) {
         final id = entry.key;
         final other = entry.value;
         final profile = other['profiles'] as Map<String, dynamic>?;
@@ -101,6 +116,7 @@ class ChatService {
           lastMessageBody: lastMessage?['body'] as String?,
           lastMessageAt: lastMessageAt,
           isUnread: isUnread,
+          isArchived: archivedIds.contains(id),
         );
       }).toList();
 
@@ -129,7 +145,7 @@ class ChatService {
   /// disagree with each other.
   static Future<int> fetchUnreadConversationCount() async {
     final conversations = await fetchConversations();
-    return conversations.where((c) => c.isUnread).length;
+    return conversations.where((c) => c.isUnread && !c.isArchived).length;
   }
 
   /// Call when the user opens [conversationId] — marks it read as of
@@ -161,11 +177,35 @@ class ChatService {
     }
   }
 
+  /// When I deleted [conversationId], or null if I never did. Messages from
+  /// before that moment stay hidden from me.
+  static Future<DateTime?> _myDeletedAt(String conversationId) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return null;
+    try {
+      final row = await _supabase
+          .from('conversation_participants')
+          .select('deleted_at')
+          .eq('conversation_id', conversationId)
+          .eq('user_id', user.id)
+          .maybeSingle();
+      final raw = row?['deleted_at'] as String?;
+      return raw == null ? null : DateTime.parse(raw).toLocal();
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<List<ChatMessage>> fetchMessages(String conversationId) async {
     final currentUserId = _supabase.auth.currentUser?.id ?? '';
     try {
+      final cutoff = await _myDeletedAt(conversationId);
       final rows = await _supabase.from('messages').select().eq('conversation_id', conversationId).order('created_at', ascending: true);
-      return (rows as List).cast<Map<String, dynamic>>().map((r) => ChatMessage.fromMap(r, currentUserId: currentUserId)).toList();
+      return (rows as List)
+          .cast<Map<String, dynamic>>()
+          .map((r) => ChatMessage.fromMap(r, currentUserId: currentUserId))
+          .where((m) => cutoff == null || m.createdAt.isAfter(cutoff))
+          .toList();
     } catch (e) {
       // ignore: avoid_print
       print('ChatService.fetchMessages failed: $e');
@@ -178,9 +218,10 @@ class ChatService {
   /// the full current list on every change (Supabase's stream() API
   /// re-emits the whole result set, not just diffs), which is simple to
   /// reason about and fine at chat-history scale.
-  static Stream<List<ChatMessage>> streamMessages(String conversationId) {
+  static Stream<List<ChatMessage>> streamMessages(String conversationId) async* {
     final currentUserId = _supabase.auth.currentUser?.id ?? '';
-    return _supabase
+    final cutoff = await _myDeletedAt(conversationId);
+    yield* _supabase
         .from('messages')
         .stream(primaryKey: ['id'])
         .eq('conversation_id', conversationId)
@@ -191,7 +232,10 @@ class ChatService {
         // what caused messages to flip to newest-on-top a moment after
         // the initial correct load.
         .order('created_at', ascending: true)
-        .map((rows) => rows.map((r) => ChatMessage.fromMap(r, currentUserId: currentUserId)).toList());
+        .map((rows) => rows
+            .map((r) => ChatMessage.fromMap(r, currentUserId: currentUserId))
+            .where((m) => cutoff == null || m.createdAt.isAfter(cutoff))
+            .toList());
   }
 
   static Future<bool> sendMessage(String conversationId, String body) async {
@@ -250,6 +294,44 @@ class ChatService {
     } catch (e) {
       // ignore: avoid_print
       print('ChatService.unblockUser failed: $e');
+      return false;
+    }
+  }
+
+  /// Moves a chat into (or out of) "Archived chats". Only affects me.
+  static Future<bool> setArchived(String conversationId, bool archived) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return false;
+    try {
+      await _supabase
+          .from('conversation_participants')
+          .update({'archived_at': archived ? DateTime.now().toUtc().toIso8601String() : null})
+          .eq('conversation_id', conversationId)
+          .eq('user_id', user.id);
+      return true;
+    } catch (e) {
+      // ignore: avoid_print
+      print('ChatService.setArchived failed: $e');
+      return false;
+    }
+  }
+
+  /// Deletes the conversation for me only: hides everything up to now and
+  /// takes it out of my list. The other person keeps their copy. A new
+  /// message from them brings the chat back with only the newer messages.
+  static Future<bool> deleteConversation(String conversationId) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return false;
+    try {
+      await _supabase
+          .from('conversation_participants')
+          .update({'deleted_at': DateTime.now().toUtc().toIso8601String(), 'archived_at': null})
+          .eq('conversation_id', conversationId)
+          .eq('user_id', user.id);
+      return true;
+    } catch (e) {
+      // ignore: avoid_print
+      print('ChatService.deleteConversation failed: $e');
       return false;
     }
   }
