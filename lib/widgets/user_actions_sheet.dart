@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../screens/chat_thread_screen.dart';
 import '../screens/user_profile_screen.dart';
 import '../services/chat_service.dart';
+import 'confirm_unblock.dart';
 import 'user_avatar.dart';
 
 /// The menu that opens when you tap another member's name or photo
@@ -129,6 +130,11 @@ class _UserActionsSheetState extends State<_UserActionsSheet> {
       if (confirmed != true) return;
     }
 
+    if (wasBlocked) {
+      if (!_ctx.mounted) return;
+      if (!await confirmUnblock(_ctx, widget.userName)) return;
+      if (!_ctx.mounted) return;
+    }
     final ok = wasBlocked ? await ChatService.unblockUser(widget.userId) : await ChatService.blockUser(widget.userId);
     _snack(ok ? (wasBlocked ? '${widget.userName} is unblocked.' : '${widget.userName} is blocked.') : "Couldn't update. Try again.");
   }

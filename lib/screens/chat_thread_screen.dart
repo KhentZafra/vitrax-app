@@ -7,12 +7,15 @@ import 'package:provider/provider.dart';
 import '../models/chat_message.dart';
 import '../providers/chat_unread_provider.dart';
 import '../services/chat_service.dart';
+import '../widgets/confirm_unblock.dart';
+import '../widgets/user_avatar.dart';
 
 class ChatThreadScreen extends StatefulWidget {
   final String conversationId;
   final String otherUserId;
   final String otherUserName;
-  const ChatThreadScreen({super.key, required this.conversationId, required this.otherUserId, required this.otherUserName});
+  final String? otherUserAvatarUrl;
+  const ChatThreadScreen({super.key, required this.conversationId, required this.otherUserId, required this.otherUserName, this.otherUserAvatarUrl});
 
   @override
   State<ChatThreadScreen> createState() => _ChatThreadScreenState();
@@ -28,10 +31,17 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
   bool _sending = false;
   bool _blockedByMe = false;
   bool _checkingBlockStatus = true;
+  String? _avatarUrl;
 
   @override
   void initState() {
     super.initState();
+    _avatarUrl = widget.otherUserAvatarUrl;
+    if (_avatarUrl == null) {
+      ChatService.fetchAvatarUrl(widget.otherUserId).then((url) {
+        if (mounted && url != null) setState(() => _avatarUrl = url);
+      });
+    }
     _load();
     _checkBlockStatus();
   }
@@ -54,6 +64,8 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
   }
 
   Future<void> _toggleBlock() async {
+    if (_blockedByMe && !await confirmUnblock(context, widget.otherUserName)) return;
+    if (!mounted) return;
     final success = _blockedByMe ? await ChatService.unblockUser(widget.otherUserId) : await ChatService.blockUser(widget.otherUserId);
     if (!mounted) return;
     if (success) {
@@ -195,7 +207,22 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
       backgroundColor: const Color(0xff050505),
       appBar: AppBar(
         backgroundColor: const Color(0xff050505),
-        title: Text(widget.otherUserName),
+        foregroundColor: Colors.white,
+        titleSpacing: 0,
+        title: Row(
+          children: [
+            UserAvatar(avatarUrl: _avatarUrl, radius: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                widget.otherUserName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert, color: Colors.white),

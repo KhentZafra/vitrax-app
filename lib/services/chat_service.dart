@@ -243,6 +243,10 @@ class ChatService {
     if (user == null || body.trim().isEmpty) return false;
     try {
       await _supabase.from('messages').insert({'conversation_id': conversationId, 'sender_id': user.id, 'body': body.trim()});
+      // Writing in an archived chat brings it back to the main list.
+      try {
+        await setArchived(conversationId, false);
+      } catch (_) {}
       return true;
     } catch (e) {
       // ignore: avoid_print
@@ -351,6 +355,72 @@ class ChatService {
       // ignore: avoid_print
       print('ChatService.reportUser failed: $e');
       return false;
+    }
+  }
+
+  /// A user's profile photo URL (null if none), for the chat header.
+  static Future<String?> fetchAvatarUrl(String userId) async {
+    try {
+      final row = await _supabase.from('profiles').select('avatar_url').eq('id', userId).maybeSingle();
+      return row?['avatar_url'] as String?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// People I have blocked, with names, for the "Blocked users" list.
+  static Future<List<Map<String, dynamic>>> fetchBlockedUsers() async {
+    final me = _supabase.auth.currentUser?.id;
+    if (me == null) return [];
+    try {
+      final rows = await _supabase.from('blocked_users').select('blocked_id').eq('blocker_id', me);
+      final ids = (rows as List).map((r) => (r as Map)['blocked_id'] as String).toList();
+      if (ids.isEmpty) return [];
+      final profiles = await _supabase.from('profiles').select('id, first_name, last_name, avatar_url').inFilter('id', ids);
+      final byId = {for (final p in (profiles as List)) (p as Map)['id'] as String: p};
+      return [
+        for (final id in ids)
+          {
+            'id': id,
+            'name': ('${byId[id]?['first_name'] ?? ''} ${byId[id]?['last_name'] ?? ''}').trim().isEmpty
+                ? 'Unknown user'
+                : ('${byId[id]?['first_name'] ?? ''} ${byId[id]?['last_name'] ?? ''}').trim(),
+            'avatar': byId[id]?['avatar_url'],
+          },
+      ];
+    } catch (e) {
+      // ignore: avoid_print
+      print('ChatService.fetchBlockedUsers failed: $e');
+      return [];
+    }
+  }
+
+  /// Reports I have sent, newest first (if the database lets me read them).
+  static Future<List<Map<String, dynamic>>> fetchMyReports() async {
+    final me = _supabase.auth.currentUser?.id;
+    if (me == null) return [];
+    try {
+      final rows = await _supabase.from('chat_reports').select().eq('reporter_id', me);
+      final list = (rows as List).map((r) => Map<String, dynamic>.from(r as Map)).toList();
+      final ids = list.map((r) => r['reported_user_id']).whereType<String>().toSet().toList();
+      final names = <String, String>{};
+      if (ids.isNotEmpty) {
+        final profiles = await _supabase.from('profiles').select('id, first_name, last_name').inFilter('id', ids);
+        for (final p in (profiles as List)) {
+          final m = p as Map;
+          names[m['id'] as String] = '${m['first_name'] ?? ''} ${m['last_name'] ?? ''}'.trim();
+        }
+      }
+      for (final r in list) {
+        final n = names[r['reported_user_id']];
+        r['name'] = (n == null || n.isEmpty) ? 'Unknown user' : n;
+      }
+      list.sort((a, b) => '${b['created_at'] ?? ''}'.compareTo('${a['created_at'] ?? ''}'));
+      return list;
+    } catch (e) {
+      // ignore: avoid_print
+      print('ChatService.fetchMyReports failed: $e');
+      return [];
     }
   }
 }

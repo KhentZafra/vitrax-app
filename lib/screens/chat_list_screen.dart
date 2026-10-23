@@ -10,6 +10,7 @@ import '../models/chat_message.dart';
 import '../providers/chat_unread_provider.dart';
 import '../services/chat_service.dart';
 import '../services/table_watcher.dart';
+import '../widgets/confirm_unblock.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_thread_screen.dart';
 
@@ -87,20 +88,52 @@ class _ChatConversationsListState extends State<ChatConversationsList> {
     context.read<ChatUnreadProvider>().refresh();
   }
 
-  Future<void> _openArchived() async {
-    await Navigator.push(context, MaterialPageRoute(builder: (_) => const ArchivedChatsScreen()));
+  Future<void> _openScreen(Widget screen) async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
     _load(silent: true);
+  }
+
+  Widget _menuHeader() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 4, 0),
+      child: Row(
+        children: [
+          const Expanded(child: Text('Chats', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700))),
+          PopupMenuButton<String>(
+            icon: Badge(isLabelVisible: _archived.any((c) => c.isUnread), smallSize: 9, child: const Icon(Icons.menu, color: Colors.white)),
+            color: const Color(0xff1b1b1b),
+            tooltip: 'Chat menu',
+            onSelected: (v) {
+              if (v == 'archived') _openScreen(const ArchivedChatsScreen());
+              if (v == 'blocked') _openScreen(const BlockedUsersScreen());
+              if (v == 'reports') _openScreen(const MyReportsScreen());
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'archived', child: ListTile(dense: true, leading: Icon(Icons.archive_outlined, color: Colors.white), title: Text('Archived chats', style: TextStyle(color: Colors.white)))),
+              PopupMenuItem(value: 'blocked', child: ListTile(dense: true, leading: Icon(Icons.block, color: Colors.white), title: Text('Blocked users', style: TextStyle(color: Colors.white)))),
+              PopupMenuItem(value: 'reports', child: ListTile(dense: true, leading: Icon(Icons.flag_outlined, color: Colors.white), title: Text('My reports', style: TextStyle(color: Colors.white)))),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _menuHeader(),
+        Expanded(child: _buildBody(context)),
+      ],
+    );
+  }
+
+  Widget _buildBody(BuildContext context) {
     if (_isLoading) return const ListSkeleton();
 
     final active = _active;
-    final archived = _archived;
-    final showArchivedRow = archived.isNotEmpty;
-
-    if (active.isEmpty && !showArchivedRow) {
+    if (active.isEmpty) {
       return RefreshIndicator(
         onRefresh: _load,
         child: ListView(
@@ -128,13 +161,10 @@ class _ChatConversationsListState extends State<ChatConversationsList> {
       child: ListView.separated(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.symmetric(vertical: 8),
-        itemCount: active.length + (showArchivedRow ? 1 : 0),
+        itemCount: active.length,
         separatorBuilder: (_, _) => const Divider(color: Colors.white10, height: 1, indent: 76),
         itemBuilder: (context, index) {
-          if (showArchivedRow && index == 0) {
-            return _ArchivedRow(archived: archived, onTap: _openArchived);
-          }
-          final c = active[index - (showArchivedRow ? 1 : 0)];
+          final c = active[index];
           return ConversationTile(
             conversation: c,
             onChanged: _load,
@@ -154,36 +184,6 @@ String _timeLabel(DateTime? time) {
   return DateFormat.MMMd().format(time);
 }
 
-/// The "Archived chats" row pinned at the top of the list (Telegram style).
-class _ArchivedRow extends StatelessWidget {
-  final List<ChatConversation> archived;
-  final VoidCallback onTap;
-  const _ArchivedRow({required this.archived, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final unread = archived.where((c) => c.isUnread).length;
-    final names = archived.take(3).map((c) => c.otherUserName).join(', ');
-    return ListTile(
-      onTap: onTap,
-      leading: const CircleAvatar(
-        radius: 22,
-        backgroundColor: Color(0xff2a3a55),
-        child: Icon(Icons.archive_outlined, color: Colors.white, size: 22),
-      ),
-      title: const Text('Archived chats', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-      subtitle: Text(names, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
-      trailing: unread > 0
-          ? Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(color: Colors.grey.shade700, borderRadius: BorderRadius.circular(12)),
-              child: Text('$unread', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
-            )
-          : Text('${archived.length}', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-    );
-  }
-}
-
 /// One chat in the list. Tap opens the chat; long-press opens the menu.
 class ConversationTile extends StatelessWidget {
   final ChatConversation conversation;
@@ -195,7 +195,7 @@ class ConversationTile extends StatelessWidget {
     final c = conversation;
     return ListTile(
       onTap: () async {
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => ChatThreadScreen(conversationId: c.id, otherUserId: c.otherUserId, otherUserName: c.otherUserName)));
+        await Navigator.push(context, MaterialPageRoute(builder: (_) => ChatThreadScreen(conversationId: c.id, otherUserId: c.otherUserId, otherUserName: c.otherUserName, otherUserAvatarUrl: c.otherUserAvatarUrl)));
         await onChanged();
       },
       onLongPress: () {
@@ -296,7 +296,8 @@ Future<void> showConversationMenu(BuildContext context, ChatConversation c, Futu
 // the tile (and its context) from the list, but the messenger stays valid.
 void _snack(ScaffoldMessengerState messenger, String message, {SnackBarAction? action}) {
   messenger.clearSnackBars();
-  messenger.showSnackBar(SnackBar(content: Text(message), action: action));
+  // Undo bars disappear by themselves after 3 seconds (no countdown shown).
+  messenger.showSnackBar(SnackBar(content: Text(message), action: action, duration: const Duration(seconds: 3), persist: false));
 }
 
 Future<void> _toggleArchive(BuildContext context, ChatConversation c, Future<void> Function() onChanged) async {
@@ -469,6 +470,123 @@ class _ArchivedChatsScreenState extends State<ArchivedChatsScreen> {
                   itemBuilder: (_, i) => ConversationTile(conversation: _archived[i], onChanged: _load),
                 ),
               ),
+      ),
+    );
+  }
+}
+
+
+/// People I blocked. Tap Unblock to let them message me again.
+class BlockedUsersScreen extends StatefulWidget {
+  const BlockedUsersScreen({super.key});
+
+  @override
+  State<BlockedUsersScreen> createState() => _BlockedUsersScreenState();
+}
+
+class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
+  List<Map<String, dynamic>> _users = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final users = await ChatService.fetchBlockedUsers();
+    if (!mounted) return;
+    setState(() {
+      _users = users;
+      _loading = false;
+    });
+  }
+
+  Future<void> _unblock(Map<String, dynamic> u) async {
+    final messenger = ScaffoldMessenger.of(context);
+    if (!await confirmUnblock(context, u['name'] as String)) return;
+    final ok = await ChatService.unblockUser(u['id'] as String);
+    if (!ok) return _snack(messenger, "Couldn't unblock. Try again.");
+    await _load();
+    _snack(messenger, '${u['name']} is unblocked.');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xff050505),
+      appBar: AppBar(backgroundColor: const Color(0xff050505), foregroundColor: Colors.white, title: const Text('Blocked users')),
+      body: SafeArea(
+        child: _loading
+            ? const ListSkeleton()
+            : _users.isEmpty
+                ? Center(child: Text("You haven't blocked anyone.", style: TextStyle(color: Colors.grey.shade500)))
+                : ListView.separated(
+                    itemCount: _users.length,
+                    separatorBuilder: (_, _) => const Divider(color: Colors.white10, height: 1, indent: 76),
+                    itemBuilder: (_, i) {
+                      final u = _users[i];
+                      return ListTile(
+                        leading: UserAvatar(avatarUrl: u['avatar'] as String?, radius: 22),
+                        title: Text(u['name'] as String, style: const TextStyle(color: Colors.white)),
+                        trailing: TextButton(onPressed: () => _unblock(u), child: const Text('Unblock')),
+                      );
+                    },
+                  ),
+      ),
+    );
+  }
+}
+
+/// Reports I sent about other people (read-only).
+class MyReportsScreen extends StatefulWidget {
+  const MyReportsScreen({super.key});
+
+  @override
+  State<MyReportsScreen> createState() => _MyReportsScreenState();
+}
+
+class _MyReportsScreenState extends State<MyReportsScreen> {
+  List<Map<String, dynamic>> _reports = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    ChatService.fetchMyReports().then((r) {
+      if (!mounted) return;
+      setState(() {
+        _reports = r;
+        _loading = false;
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xff050505),
+      appBar: AppBar(backgroundColor: const Color(0xff050505), foregroundColor: Colors.white, title: const Text('My reports')),
+      body: SafeArea(
+        child: _loading
+            ? const ListSkeleton()
+            : _reports.isEmpty
+                ? Center(child: Text('No reports sent.', style: TextStyle(color: Colors.grey.shade500)))
+                : ListView.separated(
+                    itemCount: _reports.length,
+                    separatorBuilder: (_, _) => const Divider(color: Colors.white10, height: 1),
+                    itemBuilder: (_, i) {
+                      final r = _reports[i];
+                      final when = DateTime.tryParse('${r['created_at'] ?? ''}')?.toLocal();
+                      return ListTile(
+                        leading: const Icon(Icons.flag_outlined, color: Colors.orange),
+                        title: Text(r['name'] as String, style: const TextStyle(color: Colors.white)),
+                        subtitle: Text('${r['reason'] ?? ''}', style: const TextStyle(color: Colors.grey)),
+                        trailing: when == null ? null : Text(DateFormat.MMMd().format(when), style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                      );
+                    },
+                  ),
       ),
     );
   }

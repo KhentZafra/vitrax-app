@@ -70,6 +70,15 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
   Timer? _ticker;
   Timer? _undoTimer;
 
+  // GPS health: shows a warning when speed/distance can't be counted
+  // (permission off, no signal, or accuracy too weak) and a live accuracy readout.
+  Timer? _gpsWatchdog;
+  double? _gpsAccuracy;
+  DateTime? _lastFixAt;
+  DateTime? _lastGoodFixAt;
+  String? _gpsWarning;
+  VoidCallback? _gpsWarningAction;
+
   final MapController _mapController = MapController();
 
   bool _isRecording = false;
@@ -271,6 +280,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     _preStartMotionSub?.cancel();
     _ticker?.cancel();
     _undoTimer?.cancel();
+    _gpsWatchdog?.cancel();
     _autoStopTimer?.cancel();
     _autoStopSecondsLeft.dispose();
     super.dispose();
@@ -695,13 +705,49 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     _subscribePositions();
   }
 
+  void _startGpsWatchdog() {
+    _gpsWatchdog?.cancel();
+    _lastFixAt = null;
+    _lastGoodFixAt = null;
+    final startedAt = DateTime.now();
+    _gpsWatchdog = Timer.periodic(const Duration(seconds: 3), (_) async {
+      if (!mounted) return;
+      final now = DateTime.now();
+      String? warning;
+      VoidCallback? action;
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+        warning = 'Location permission is off. Tap to open settings.';
+        action = Geolocator.openAppSettings;
+      } else if (!await Geolocator.isLocationServiceEnabled()) {
+        warning = 'Location (GPS) is turned off. Tap to turn it on.';
+        action = Geolocator.openLocationSettings;
+      } else if (_lastFixAt == null ? now.difference(startedAt).inSeconds >= 20 : now.difference(_lastFixAt!).inSeconds >= 15) {
+        warning = 'No GPS signal. Go outside or to an open area. Distance and speed are not counting.';
+      } else if (_lastGoodFixAt == null ? now.difference(startedAt).inSeconds >= 20 : now.difference(_lastGoodFixAt!).inSeconds >= 15) {
+        warning = 'Weak GPS (±${(_gpsAccuracy ?? 0).round()} m). Distance and speed are not counting. Move to an open area.';
+      }
+      if (!mounted) return;
+      if (warning != _gpsWarning) {
+        setState(() {
+          _gpsWarning = warning;
+          _gpsWarningAction = action;
+        });
+      }
+    });
+  }
+
   void _subscribePositions() {
     final settings = _recordingSettings();
+    _startGpsWatchdog();
     _positionSub?.cancel();
     _positionSub = Geolocator.getPositionStream(locationSettings: settings)
         .listen((pos) {
           const maxAcceptableAccuracyMeters = 20.0;
+          _gpsAccuracy = pos.accuracy;
+          _lastFixAt = DateTime.now();
           if (pos.accuracy > maxAcceptableAccuracyMeters) return;
+          _lastGoodFixAt = DateTime.now();
 
           final latLng = LatLng(pos.latitude, pos.longitude);
           _route.add(
@@ -1451,6 +1497,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
 
   Future<void> _stopAndSave() async {
     _positionSub?.cancel();
+    _gpsWatchdog?.cancel();
     _ticker?.cancel();
 
     if (_distanceMeters <= 0 && _elapsed.inSeconds < 5) {
@@ -1973,11 +2020,11 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
                     color: Colors.black.withValues(alpha: .7),
                     borderRadius: BorderRadius.circular(24),
                   ),
-                  child: const Row(
+                  child: Row(
                     children: [
-                      Icon(Icons.circle, color: Colors.red, size: 10),
-                      SizedBox(width: 6),
-                      Text(
+                      const Icon(Icons.circle, color: Colors.red, size: 10),
+                      const SizedBox(width: 6),
+                      const Text(
                         'LIVE',
                         style: TextStyle(
                           color: Colors.white,
@@ -1985,10 +2032,43 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
                           fontSize: 13,
                         ),
                       ),
+                      if (_gpsAccuracy != null) ...[
+                        const SizedBox(width: 8),
+                        Text(
+                          'GPS ±${_gpsAccuracy!.round()} m',
+                          style: TextStyle(
+                            color: _gpsAccuracy! <= 20 ? Colors.greenAccent : Colors.orangeAccent,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
               ),
+              if (_gpsWarning != null)
+                Positioned(
+                  top: 60,
+                  left: 16,
+                  right: 182,
+                  child: GestureDetector(
+                    onTap: _gpsWarningAction,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade800.withValues(alpha: .92),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.gps_off, color: Colors.white, size: 16),
+                          const SizedBox(width: 8),
+                          Expanded(child: Text(_gpsWarning!, style: const TextStyle(color: Colors.white, fontSize: 12))),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               const Positioned(
                 top: 14,
                 left: 0,
@@ -2133,7 +2213,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
                         TextButton(
                           onPressed: _undoHazardReport,
                           child: Text(
-                            'Undo ($_undoSecondsLeft)',
+                            'Undo',
                             style: const TextStyle(
                               color: Colors.blue,
                               fontWeight: FontWeight.w600,
