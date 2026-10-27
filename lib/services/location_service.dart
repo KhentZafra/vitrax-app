@@ -32,7 +32,7 @@ class LocationService {
       final province = (p.subAdministrativeArea != null && p.subAdministrativeArea!.isNotEmpty) ? p.subAdministrativeArea! : 'Bohol';
 
       final parts = <String>[
-        if (municipality != null) municipality,
+        ?municipality,
         province,
       ];
 

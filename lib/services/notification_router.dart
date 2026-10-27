@@ -4,8 +4,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/feed_item.dart';
 import '../models/feed_notification.dart';
+import '../screens/challenge_detail_screen.dart';
 import '../screens/chat_thread_screen.dart';
 import '../screens/community_feed_screen.dart';
+import '../screens/profile_screen.dart';
+import '../screens/routes_screen.dart';
 import 'badge_service.dart' show rootNavigatorKey;
 import 'chat_service.dart';
 import 'community_feed_service.dart';
@@ -31,6 +34,19 @@ class NotificationRouter {
     await nav.push(MaterialPageRoute(builder: (_) => FeedPostScreen(item: item, openComments: withComments)));
   }
 
+  /// Opens whatever a notification is about: a post, your routes, or your profile.
+  static Future<void> openNotification(FeedNotification n, {FeedItem? known}) async {
+    final nav = rootNavigatorKey.currentState;
+    if (nav == null) return;
+    if (n.isBadge) {
+      await nav.push(MaterialPageRoute(builder: (_) => const ProfileScreen()));
+    } else if (n.isRoute) {
+      await nav.push(MaterialPageRoute(builder: (_) => const RoutesScreen()));
+    } else {
+      await openFeed(n, known: known);
+    }
+  }
+
   /// Opens a chat conversation by id.
   static Future<void> openChat(String conversationId) async {
     final nav = rootNavigatorKey.currentState;
@@ -54,6 +70,11 @@ class NotificationRouter {
           final id = data['conversation_id']?.toString();
           if (id != null) await openChat(id);
           break;
+        case 'challenge':
+          final cid = data['challenge_id']?.toString();
+          if (cid == null || cid.isEmpty) return;
+          await rootNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => ChallengeDetailScreen(challengeId: cid)));
+          break;
         case 'feed_notification':
           final postId = data['post_id']?.toString();
           if (postId == null) return;
@@ -67,7 +88,7 @@ class NotificationRouter {
             isRead: true,
             createdAt: DateTime.now(),
           );
-          await openFeed(n);
+          await openNotification(n);
           break;
       }
     } catch (e) {

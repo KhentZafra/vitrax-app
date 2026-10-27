@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
+import 'hazard_haptics.dart';
+
 /// Spoken audio alerts for rides. The rule: ONE message at a time.
 ///
 /// * A message that is speaking is never cut off by another message.
@@ -9,6 +11,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 /// * Ambient messages (cautions, "you are inside a hazard area") are only
 ///   spoken when nothing else is speaking or waiting. If the app is busy
 ///   they are dropped, because a stale caution is worse than none.
+/// * Every message is preceded by a 3-second phone vibration.
 /// * [stop] ends the current speech and clears the line. Anything cleared
 ///   never fires its follow-up action.
 class TtsService {
@@ -61,6 +64,10 @@ class TtsService {
       while (_queue.isNotEmpty) {
         final item = _queue.removeAt(0);
         if (item.generation != _generation) continue; // cleared by stop()
+        // Long vibration first (3 s) so the rider's attention is caught,
+        // then the message is spoken.
+        await HazardHaptics.buzz();
+        if (item.generation != _generation) continue; // stopped meanwhile
         try {
           await _tts.speak(item.message).timeout(const Duration(seconds: 25));
         } catch (e) {
@@ -103,6 +110,7 @@ class TtsService {
   static Future<void> stop() async {
     _generation++;
     _queue.clear();
+    HazardHaptics.cancel();
     try {
       await _tts.stop();
     } catch (_) {}

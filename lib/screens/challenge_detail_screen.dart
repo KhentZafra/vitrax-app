@@ -1,3 +1,7 @@
+import '../widgets/route_nav_icon.dart';
+import '../widgets/route_end_marker.dart';
+import '../widgets/leave_door_icon.dart';
+import '../widgets/track_arrow_icon.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -13,6 +17,8 @@ import '../models/activity.dart';
 import '../models/challenge.dart';
 import '../providers/activity_provider.dart';
 import '../services/challenge_service.dart';
+import 'activity_selection_screen.dart';
+import 'subtype_selection_screen.dart';
 import '../widgets/user_avatar.dart';
 
 class ChallengeDetailScreen extends StatefulWidget {
@@ -24,6 +30,7 @@ class ChallengeDetailScreen extends StatefulWidget {
 }
 
 class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
+  bool _showFullBoard = false;
   Challenge? _challenge;
   List<ChallengeStanding> _standings = [];
   List<ChallengeTimeEntry> _timeLeaderboard = [];
@@ -146,6 +153,24 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
     }
   }
 
+  Future<void> _confirmLeave() async {
+    final c = _challenge;
+    if (c == null) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xff141414),
+        title: const Text('Leave this challenge?', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+        content: Text('You will be removed from "${c.title}" and your progress or time on it will be lost.', style: TextStyle(color: Colors.grey.shade400)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Stay')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text('Leave', style: TextStyle(color: Colors.red.shade300))),
+        ],
+      ),
+    );
+    if (ok == true && mounted) await _toggleJoin();
+  }
+
   Future<void> _uploadMyQr() async {
     final picker = ImagePicker();
     final picked = await picker.pickImage(source: ImageSource.gallery, maxWidth: 1200, imageQuality: 85);
@@ -238,6 +263,63 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
     await _submitAttempt(c, selected);
   }
 
+  /// Starts a live recording with this challenge's route drawn on the map
+  /// to follow (same "Retracing ..." mode as Track this Route). When the
+  /// user comes back after recording, the new activity is offered right
+  /// away as their attempt.
+  Future<void> _startRetrace() async {
+    final c = _challenge;
+    final route = c?.routePoints;
+    if (c == null || route == null || route.length < 2) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("This challenge's route isn't available.")));
+      return;
+    }
+    final launched = DateTime.now();
+    // The challenge already says what it is for (cycling or running), so
+    // skip the "choose activity" step and go straight to the subtype.
+    // Only a challenge with no fixed activity asks which one to record.
+    final fixedType = c.activityFilter == ChallengeActivityFilter.ride
+        ? ActivityType.ride
+        : (c.activityFilter == ChallengeActivityFilter.run ? ActivityType.run : null);
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => fixedType != null
+            ? SubtypeSelectionScreen(
+                activityType: fixedType,
+                referenceRoute: route,
+                referenceRouteLabel: c.title,
+                referenceRouteColor: Colors.blue,
+              )
+            : ActivitySelectionScreen(
+                referenceRoute: route,
+                referenceRouteLabel: c.title,
+                referenceRouteColor: Colors.blue,
+              ),
+      ),
+    );
+    if (!mounted) return;
+    final fresh = context.read<ActivityProvider>().allActivities.where((a) => a.route.length > 1 && a.startedAt.isAfter(launched)).toList();
+    if (fresh.isEmpty) return;
+    final latest = fresh.reduce((a, b) => a.startedAt.isAfter(b.startedAt) ? a : b);
+    final submit = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xff141414),
+        title: const Text('Submit this run?', style: TextStyle(color: Colors.white)),
+        content: Text(
+          'You recorded ${latest.distanceKm.toStringAsFixed(2)} km in ${_formatDuration(latest.duration)}. Submit it as your attempt on "${c.title}"?',
+          style: TextStyle(color: Colors.grey.shade400),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Not now')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Submit')),
+        ],
+      ),
+    );
+    if (submit == true && mounted) await _submitAttempt(c, latest);
+  }
+
   Future<void> _submitAttempt(Challenge challenge, Activity activity) async {
     setState(() => _submittingAttempt = true);
     final result = await ChallengeService.submitRouteAttempt(challenge, activity);
@@ -258,6 +340,9 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
         break;
       case ChallengeAttemptStatus.tooFarFromFinish:
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("This activity didn't finish close enough to the challenge's route.")));
+        break;
+      case ChallengeAttemptStatus.offRoute:
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("You didn't follow the challenge's route closely enough. Retrace the same path to beat it.")));
         break;
       case ChallengeAttemptStatus.implausiblePace:
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('That pace is faster than physically plausible for this activity type, Attempt rejected.')));
@@ -334,7 +419,22 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xff050505),
-      appBar: AppBar(backgroundColor: const Color(0xff050505), title: Text(c.title)),
+      appBar: AppBar(
+        backgroundColor: const Color(0xff050505),
+        actions: [
+          if (c.joinedByMe && !c.hasEnded)
+            _busy
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+                  )
+                : IconButton(
+                    tooltip: 'Leave challenge',
+                    icon: LeaveDoorIcon(size: 22, color: Colors.red.shade300),
+                    onPressed: _confirmLeave,
+                  ),
+        ],
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
@@ -344,16 +444,38 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
               Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(color: Colors.blue.withValues(alpha: .15), borderRadius: BorderRadius.circular(20)),
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: const Color(0xff0b1a2e),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.blue.withValues(alpha: .6), width: 1.4),
+                      boxShadow: [BoxShadow(color: Colors.blue.withValues(alpha: .25), blurRadius: 14)],
+                    ),
+                    child: const Icon(Icons.emoji_events, color: Colors.blue, size: 30),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(child: Text(c.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w700))),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(color: Colors.blue.withValues(alpha: .12), borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.blue, width: 1.2)),
                     child: Text(c.hasEnded ? 'Ended' : (c.hasStarted ? 'Active' : 'Upcoming'), style: const TextStyle(color: Colors.blue, fontSize: 12, fontWeight: FontWeight.w600)),
                   ),
                   const SizedBox(width: 8),
                   if (c.isRouteChallenge) ...[
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(color: Colors.purple.withValues(alpha: .15), borderRadius: BorderRadius.circular(20)),
-                      child: const Text('Route Race', style: TextStyle(color: Colors.purpleAccent, fontSize: 12, fontWeight: FontWeight.w600)),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(color: Colors.purple.withValues(alpha: .15), borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.purpleAccent.withValues(alpha: .7))),
+                      child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.sports_score, color: Colors.purpleAccent, size: 14),
+                        SizedBox(width: 5),
+                        Text('Route Race', style: TextStyle(color: Colors.purpleAccent, fontSize: 12, fontWeight: FontWeight.w600)),
+                      ]),
                     ),
                     const SizedBox(width: 8),
                   ],
@@ -381,10 +503,15 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
 
               if (c.isRouteChallenge) ...[
                 if (_hasDisplayableRoute)
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
+                  Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.blue.withValues(alpha: .6), width: 1.4),
+                      boxShadow: [BoxShadow(color: Colors.blue.withValues(alpha: .18), blurRadius: 16)],
+                    ),
+                    clipBehavior: Clip.antiAlias,
                     child: SizedBox(
-                      height: 200,
+                      height: 220,
                       child: IgnorePointer(
                         child: FlutterMap(
                           options: MapOptions(
@@ -397,31 +524,27 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                           children: [
                             TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', userAgentPackageName: 'com.vitrax.app'),
                             PolylineLayer(polylines: [Polyline(points: c.routePoints!.map((p) => LatLng(p.lat, p.lng)).toList(), color: Colors.blue, strokeWidth: 4)]),
-                            MarkerLayer(markers: [
-                              Marker(point: c.startPoint!, width: 16, height: 16, child: Container(decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.green, border: Border.all(color: Colors.white, width: 2)))),
-                              Marker(point: c.finishPoint!, width: 16, height: 16, child: Container(decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.red, border: Border.all(color: Colors.white, width: 2)))),
-                            ]),
+                            MarkerLayer(markers: RouteEndMarker.markers(
+                              [c.startPoint!, c.finishPoint!],
+                              c.activityFilter == ChallengeActivityFilter.run ? ActivityType.run : ActivityType.ride,
+                            )),
                           ],
                         ),
                       ),
                     ),
                   ),
                 const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(child: _InfoTile(label: 'Distance', value: '${c.targetValue.toStringAsFixed(1)} km')),
-                    Expanded(child: _InfoTile(label: 'Time to Beat', value: c.baselineDuration != null ? _formatDuration(c.baselineDuration!) : '—')),
-                    Expanded(child: _InfoTile(label: 'Attempts', value: '${_timeLeaderboard.length}')),
-                  ],
-                ),
+                _StatsCard(tiles: [
+                  _InfoTile(icon: Icons.route, label: 'Distance', value: '${c.targetValue.toStringAsFixed(1)} km'),
+                  _InfoTile(icon: Icons.timer_outlined, label: 'Time to Beat', value: c.baselineDuration != null ? _formatDuration(c.baselineDuration!) : '—'),
+                  _InfoTile(icon: Icons.outlined_flag, label: 'Attempts', value: '${_timeLeaderboard.length}'),
+                ]),
               ] else
-                Row(
-                  children: [
-                    Expanded(child: _InfoTile(label: 'Goal', value: _goalLabel(c))),
-                    Expanded(child: _InfoTile(label: 'Counts', value: c.activityFilter.label)),
-                    Expanded(child: _InfoTile(label: 'Joined', value: '${c.participantCount}')),
-                  ],
-                ),
+                _StatsCard(tiles: [
+                  _InfoTile(icon: Icons.flag_outlined, label: 'Goal', value: _goalLabel(c)),
+                  _InfoTile(icon: Icons.directions_run, label: 'Counts', value: c.activityFilter.label),
+                  _InfoTile(icon: Icons.groups_outlined, label: 'Joined', value: '${c.participantCount}'),
+                ]),
               const SizedBox(height: 24),
 
               // ---------- Cash prize section ----------
@@ -541,18 +664,29 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                   ),
                   const SizedBox(height: 20),
                 ],
-                if (!c.hasEnded)
+                if (!c.hasEnded) ...[
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      onPressed: _submittingAttempt ? null : _pickAttemptActivity,
-                      icon: _submittingAttempt
-                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.directions_run, size: 18),
-                      label: Text(myBestTime == null ? 'Submit an Attempt' : 'Submit a Faster Attempt'),
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+                      onPressed: _submittingAttempt ? null : _startRetrace,
+                      icon: const TrackArrowIcon(size: 18, color: Colors.white),
+                      label: Text(myBestTime == null ? 'Retrace This Route' : 'Retrace Again', style: const TextStyle(fontWeight: FontWeight.w700)),
+                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xff0a77ff), foregroundColor: Colors.white, elevation: 6, shadowColor: Colors.blue, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18))),
                     ),
                   ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _submittingAttempt ? null : _pickAttemptActivity,
+                      icon: _submittingAttempt
+                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blue))
+                          : const Icon(Icons.history, size: 18, color: Colors.blue),
+                      label: const Text('Submit a Retraced Activity', style: TextStyle(color: Colors.blue)),
+                      style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.blue, width: 1.4), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18))),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 12),
               ],
 
@@ -586,7 +720,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                 const SizedBox(height: 24),
               ],
 
-              if (!c.hasEnded)
+              if (!c.hasEnded && !c.joinedByMe)
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
@@ -604,16 +738,35 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                   ),
                 ),
 
-              const SizedBox(height: 28),
+              const SizedBox(height: 20),
+              _InfoCard(
+                rows: [
+                  _InfoCardRow(icon: Icons.calendar_month_outlined, title: '${DateFormat('MMM d').format(c.startDate)} – ${DateFormat('MMM d, y').format(c.endDate)}', subtitle: 'Challenge Period'),
+                  _InfoCardRow(icon: Icons.groups_outlined, title: '${c.participantCount} participants', subtitle: 'Joined'),
+                  _InfoCardRow(
+                    icon: Icons.bar_chart_rounded,
+                    title: c.isRouteChallenge ? 'Fastest valid attempt wins.' : 'First to reach the goal wins.',
+                    subtitle: 'How it works',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
               if (c.isRouteChallenge) ...[
-                Text('Leaderboard (${_timeLeaderboard.length})', style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                Text('Fastest valid attempt wins.', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-                const SizedBox(height: 12),
+                _SectionCard(
+                  icon: Icons.emoji_events,
+                  title: 'Leaderboard (${_timeLeaderboard.length})',
+                  subtitle: 'Fastest valid attempt wins.',
+                  trailing: _timeLeaderboard.length > 3
+                      ? GestureDetector(
+                          onTap: () => setState(() => _showFullBoard = !_showFullBoard),
+                          child: Text(_showFullBoard ? 'Show less' : 'See all', style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.w700, fontSize: 13)),
+                        )
+                      : null,
+                  children: [
                 if (_timeLeaderboard.isEmpty)
                   Text('No attempts yet, Be the first to try it.', style: TextStyle(color: Colors.grey.shade500, fontSize: 13))
                 else
-                  ..._timeLeaderboard.asMap().entries.map(
+                  ..._timeLeaderboard.take(_showFullBoard ? _timeLeaderboard.length : 3).toList().asMap().entries.map(
                         (entry) => _TimeEntryRow(
                           rank: entry.key + 1,
                           entry: entry.value,
@@ -621,14 +774,14 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                           isMe: entry.value.userId == _currentUserId,
                         ),
                       ),
-              ] else ...[
-                Text('Standings (${_standings.length})', style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                Text(
-                  'Finishers ranked by who got there first, then everyone else by progress.',
-                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                  ],
                 ),
-                const SizedBox(height: 12),
+              ] else ...[
+                _SectionCard(
+                  icon: Icons.emoji_events,
+                  title: 'Standings (${_standings.length})',
+                  subtitle: 'Finishers ranked by who got there first, then everyone else by progress.',
+                  children: [
                 if (_standings.isEmpty)
                   Text('No one has joined yet.', style: TextStyle(color: Colors.grey.shade500, fontSize: 13))
                 else
@@ -641,6 +794,8 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                           isMe: entry.value.userId == _currentUserId,
                         ),
                       ),
+                  ],
+                ),
               ],
             ],
           ),
@@ -690,7 +845,7 @@ class _ActivityPickerSheet extends StatelessWidget {
               child: ListView.separated(
                 shrinkWrap: true,
                 itemCount: sorted.length,
-                separatorBuilder: (_, __) => Divider(color: Colors.white10, height: 1),
+                separatorBuilder: (_, _) => Divider(color: Colors.white10, height: 1),
                 itemBuilder: (context, index) {
                   final a = sorted[index];
                   final h = a.duration.inHours;
@@ -872,18 +1027,143 @@ class _StandingRow extends StatelessWidget {
 }
 
 class _InfoTile extends StatelessWidget {
+  final IconData icon;
   final String label;
   final String value;
-  const _InfoTile({required this.label, required this.value});
+  const _InfoTile({required this.icon, required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(value, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+        AppIcon(icon, color: Colors.blue, size: 24),
+        const SizedBox(height: 8),
+        FittedBox(fit: BoxFit.scaleDown, child: Text(value, style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold), textAlign: TextAlign.center)),
         const SizedBox(height: 4),
-        Text(label, style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
+        Text(label, style: TextStyle(color: Colors.grey.shade500, fontSize: 11), textAlign: TextAlign.center),
       ],
+    );
+  }
+}
+
+/// Rounded dark card with a blue accent edge holding 2-3 stat tiles.
+class _StatsCard extends StatelessWidget {
+  final List<Widget> tiles;
+  const _StatsCard({required this.tiles});
+
+  @override
+  Widget build(BuildContext context) {
+    final children = <Widget>[];
+    for (var i = 0; i < tiles.length; i++) {
+      if (i > 0) children.add(Container(width: 1, height: 56, color: Colors.white12));
+      children.add(Expanded(child: tiles[i]));
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xff0c1118),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.blue.withValues(alpha: .35)),
+      ),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: children),
+    );
+  }
+}
+
+class _InfoCardRow {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  const _InfoCardRow({required this.icon, required this.title, required this.subtitle});
+}
+
+/// "Challenge Info" card (collapsible): period, participants, how it works.
+class _InfoCard extends StatelessWidget {
+  final List<_InfoCardRow> rows;
+  const _InfoCard({required this.rows});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xff0c1118),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white12),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          initiallyExpanded: true,
+          iconColor: Colors.white70,
+          collapsedIconColor: Colors.white70,
+          leading: const Icon(Icons.description_outlined, color: Colors.white70),
+          title: const Text('Challenge Info', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
+          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          children: [
+            for (final r in rows)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  children: [
+                    Icon(r.icon, color: Colors.white70, size: 24),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(r.title, style: const TextStyle(color: Colors.white, fontSize: 14)),
+                          const SizedBox(height: 2),
+                          Text(r.subtitle, style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Card with a gold trophy header used for the Leaderboard / Standings.
+class _SectionCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Widget? trailing;
+  final List<Widget> children;
+  const _SectionCard({required this.icon, required this.title, required this.subtitle, this.trailing, required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xff0c1118),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: const Color(0xffFFD700), size: 24),
+              const SizedBox(width: 12),
+              Expanded(child: Text(title, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700))),
+              ?trailing,
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(subtitle, style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+          const SizedBox(height: 12),
+          ...children,
+        ],
+      ),
     );
   }
 }

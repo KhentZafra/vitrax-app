@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:geolocator/geolocator.dart' hide ActivityType;
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:uuid/uuid.dart';
 
 import '../models/activity.dart';
 import '../models/challenge.dart';
@@ -27,7 +26,6 @@ class ChallengeService {
   }
 
   static final _supabase = Supabase.instance.client;
-  static const _uuid = Uuid();
 
   static Future<List<Challenge>> fetchChallenges() async {
     final currentUserId = _supabase.auth.currentUser?.id;
@@ -465,6 +463,11 @@ class ChallengeService {
   // as "the same route."
   static const _proximityToleranceMeters = 60.0;
 
+  /// How close (meters) the attempt must stay to the creator's path, and
+  /// what share of that path it must cover, to count as the same route.
+  static const _pathToleranceMeters = 50.0;
+  static const _pathCoverageRequired = 0.85;
+
   /// Validates [activity] as an attempt on [challenge]'s route, then
   /// records it if it's the participant's best (lowest) valid time so
   /// far. Attempts a best-effort join first (a duplicate-row error from
@@ -491,6 +494,27 @@ class ChallengeService {
     final finishDistance = Geolocator.distanceBetween(challengeFinish.latitude, challengeFinish.longitude, attemptFinish.lat, attemptFinish.lng);
     if (finishDistance > _proximityToleranceMeters) {
       return const ChallengeAttemptResult(ChallengeAttemptStatus.tooFarFromFinish);
+    }
+
+    // The attempt must actually follow the creator's path, not just share
+    // its start and finish: nearly every point of the challenge route has
+    // to have a point of the attempt close to it.
+    final ref = challenge.routePoints!;
+    final step = ref.length > 120 ? (ref.length / 120).ceil() : 1;
+    var checked = 0, covered = 0;
+    for (var i = 0; i < ref.length; i += step) {
+      checked++;
+      var near = false;
+      for (final p in activity.route) {
+        if (Geolocator.distanceBetween(ref[i].lat, ref[i].lng, p.lat, p.lng) <= _pathToleranceMeters) {
+          near = true;
+          break;
+        }
+      }
+      if (near) covered++;
+    }
+    if (checked > 0 && covered / checked < _pathCoverageRequired) {
+      return const ChallengeAttemptResult(ChallengeAttemptStatus.offRoute);
     }
 
     // Basic anti-cheat: an "attempt" faster than physically plausible
@@ -590,7 +614,7 @@ class ChallengeStanding {
 /// Outcome of trying to submit an activity as an attempt on a route
 /// challenge — carries enough detail for the UI to explain exactly why
 /// an attempt didn't count, rather than a bare true/false.
-enum ChallengeAttemptStatus { success, notImproved, tooFarFromStart, tooFarFromFinish, implausiblePace, error }
+enum ChallengeAttemptStatus { success, notImproved, tooFarFromStart, tooFarFromFinish, offRoute, implausiblePace, error }
 
 class ChallengeAttemptResult {
   final ChallengeAttemptStatus status;

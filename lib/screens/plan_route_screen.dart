@@ -1,3 +1,6 @@
+import '../widgets/route_end_marker.dart';
+import '../widgets/route_nav_icon.dart';
+import '../widgets/track_arrow_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart' hide ActivityType;
@@ -11,7 +14,6 @@ import '../models/hazard_report.dart';
 import '../providers/activity_provider.dart';
 import '../services/directions_service.dart';
 import '../services/hazard_service.dart';
-import '../widgets/map_pin_marker.dart';
 import 'activity_selection_screen.dart';
 
 /// Plan a route from your current location to a tapped destination,
@@ -37,7 +39,6 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
   late ActivityType _type = widget.activityType == ActivityType.ride ? ActivityType.ride : ActivityType.run;
   bool _locating = false;
   bool _safest = true;
-  bool _mainRoads = true; // prefer major roads with few turns
   bool _isLoadingLocation = true;
   bool _isFindingRoute = false;
   String? _permissionError;
@@ -130,7 +131,6 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
       destination: destination,
       activityType: _type,
       avoidCenters: avoidCenters,
-      mainRoads: _mainRoads,
     );
 
     if (!mounted) return;
@@ -393,7 +393,7 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
                       point: _start!,
                       width: 24,
                       height: 24,
-                      child: const UserLocationDot(size: 24),
+                      child: RouteEndMarker(isStart: true, type: _type, showLabel: false),
                     ),
                   if (_destination != null)
                     Marker(
@@ -402,8 +402,8 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
                       height: 36,
                       // bottomCenter so the pin's pointed tip — not its
                       // bulb — lands exactly on the tapped coordinate.
-                      alignment: Alignment.bottomCenter,
-                      child: const MapPinMarker(size: 36),
+                      alignment: Alignment.center,
+                      child: const RouteEndMarker(isStart: false, type: ActivityType.ride, showLabel: false),
                     ),
                 ],
               ),
@@ -528,38 +528,6 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
                       ],
                     ),
                     const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.fromLTRB(14, 2, 6, 2),
-                      decoration: BoxDecoration(
-                        color: const Color(0xff101216),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: Colors.white12),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.add_road, color: Color(0xff2F7BFF), size: 20),
-                          const SizedBox(width: 10),
-                          const Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('Prefer main roads', style: TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w600)),
-                                Text('Major roads, fewer turns', style: TextStyle(color: Colors.white54, fontSize: 11.5)),
-                              ],
-                            ),
-                          ),
-                          Switch(
-                            value: _mainRoads,
-                            thumbColor: WidgetStateProperty.resolveWith((st) => st.contains(WidgetState.selected) ? Colors.white : Colors.grey),
-                            trackColor: WidgetStateProperty.resolveWith((st) => st.contains(WidgetState.selected) ? const Color(0xff2F7BFF) : Colors.white12),
-                            onChanged: (v) => setState(() {
-                              _mainRoads = v;
-                              _route = null; // stale once the road preference changes
-                            }),
-                          ),
-                        ],
-                      ),
-                    ),
                     const SizedBox(height: 10),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -641,7 +609,7 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
                                 child: const Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    Icon(Icons.navigation_outlined, color: Color(0xff2ECC71), size: 20),
+                                    TrackArrowIcon(color: Color(0xff2ECC71), size: 18),
                                     SizedBox(width: 8),
                                     Text('Track', style: TextStyle(color: Color(0xff2ECC71), fontSize: 15, fontWeight: FontWeight.w600)),
                                   ],
@@ -722,7 +690,7 @@ class _StatTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(icon, color: const Color(0xff2F7BFF), size: 24),
+        AppIcon(icon, color: const Color(0xff2F7BFF), size: 24),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
@@ -763,7 +731,7 @@ class _FindRouteButton extends StatelessWidget {
               ? const Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)))
               : const Row(
                   children: [
-                    Icon(Icons.near_me_outlined, color: Colors.white, size: 20),
+                    TrackArrowIcon(color: Colors.white, size: 18),
                     SizedBox(width: 10),
                     Expanded(child: Text('Find Route', style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600))),
                     Icon(Icons.chevron_right, color: Colors.white, size: 22),

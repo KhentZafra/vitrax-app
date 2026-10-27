@@ -33,6 +33,18 @@ class NotificationService {
     await _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()?.requestNotificationsPermission();
     await _plugin.resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()?.requestPermissions(alert: true, badge: true, sound: true);
 
+    // High-importance channel used by pushes from the server (chat, feed,
+    // challenges). Created up front so a push that arrives while the app is
+    // closed already has a channel that pops up and shows on the lock screen.
+    await _plugin
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(const AndroidNotificationChannel(
+          'vitrax_push',
+          'Messages and community',
+          description: 'Chat messages, challenge updates and community activity',
+          importance: Importance.high,
+        ));
+
     _initialized = true;
   }
 
@@ -53,11 +65,11 @@ class NotificationService {
   );
 
   static const _generalChannel = AndroidNotificationDetails(
-    'vitrax_general',
-    'Vitrax Updates',
-    channelDescription: 'Chat messages, challenge updates, and other activity from other users',
-    importance: Importance.defaultImportance,
-    priority: Priority.defaultPriority,
+    'vitrax_push',
+    'Messages and community',
+    channelDescription: 'Chat messages, challenge updates and community activity',
+    importance: Importance.high,
+    priority: Priority.high,
   );
 
   /// Renders an incoming Firebase push message as a system notification.

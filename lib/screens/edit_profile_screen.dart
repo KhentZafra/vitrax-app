@@ -1,3 +1,5 @@
+import '../widgets/email_code_dialog.dart';
+import '../services/activity_preference.dart';
 import 'package:flutter/material.dart';
 import 'legal_screen.dart';
 import 'package:image_picker/image_picker.dart';
@@ -25,7 +27,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   String _email = '';
   String? _avatarUrl;
-  String _primaryActivity = 'Cyclist';
+  bool _cyclist = true;
+  bool _runner = false;
   bool _isLoading = true;
   bool _isSaving = false;
   bool _isUploadingAvatar = false;
@@ -57,8 +60,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       _lastController.text = (p?['last_name'] as String?) ?? '';
       _avatarUrl = p?['avatar_url'] as String?;
       _privacyZone = (p?['privacy_zone_m'] as num?)?.toInt() ?? 200;
-      final activity = p?['primary_activity'] as String?;
-      if (activity == 'Cyclist' || activity == 'Runner') _primaryActivity = activity!;
+      final pref = ActivityPreference.parse(p?['primary_activity'] as String?);
+      if (pref.hasAny) {
+        _cyclist = pref.cyclist;
+        _runner = pref.runner;
+      }
     } catch (_) {}
     _email = user.email ?? '';
     if (!mounted) return;
@@ -143,6 +149,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       _snack('First and last name are required.');
       return;
     }
+    if (!_cyclist && !_runner) {
+      _snack('Pick Cyclist, Runner, or both.');
+      return;
+    }
+    final primaryActivity = ActivityPreference.encode(cyclist: _cyclist, runner: _runner);
     final user = _supabase.auth.currentUser;
     if (user == null) return;
 
@@ -151,13 +162,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       await _supabase.from('profiles').update({
         'first_name': first,
         'last_name': last,
-        'primary_activity': _primaryActivity,
+        'primary_activity': primaryActivity,
       }).eq('id', user.id);
       // Keep auth metadata in step with the profiles row.
       await _supabase.auth.updateUser(UserAttributes(data: {
         'first_name': first,
         'last_name': last,
-        'primary_activity': _primaryActivity,
+        'primary_activity': primaryActivity,
       }));
       _changed = true;
       if (!mounted) return;
@@ -193,14 +204,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             ),
             const SizedBox(height: 10),
             const Text(
-              "We'll send a confirmation link to the new address. Your email only changes after you open it.",
+              "We'll send a 6-digit code to the new address. Your email only changes after you enter it.",
               style: TextStyle(color: Colors.grey, fontSize: 12),
             ),
           ],
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()), child: const Text('Send link')),
+          TextButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()), child: const Text('Send code')),
         ],
       ),
     );
@@ -218,7 +229,20 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
     try {
       await _supabase.auth.updateUser(UserAttributes(email: newEmail));
-      _snack('Confirmation link sent to $newEmail. Open it to finish the change.');
+      if (!mounted) return;
+      final ok = await showEmailCodeDialog(
+        context,
+        email: newEmail,
+        type: OtpType.emailChange,
+        title: 'Confirm new email',
+        message: 'We sent a 6-digit code to $newEmail. Enter it to finish changing your email.',
+      );
+      if (ok) {
+        if (mounted) setState(() => _email = newEmail);
+        _snack('Email changed to $newEmail.');
+      } else {
+        _snack('Email not changed. You can try again anytime.');
+      }
     } on AuthException catch (e) {
       _snack(e.message);
     } catch (_) {
@@ -643,15 +667,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 decoration: _fieldDecoration(Icons.person),
                               ),
                               const SizedBox(height: 16),
-                              _label('I am a'),
+                              _label('I am a (pick one or both)'),
                               Row(
                                 children: [
                                   Expanded(
                                     child: _ActivityOption(
                                       icon: Icons.directions_bike,
                                       label: 'Cyclist',
-                                      selected: _primaryActivity == 'Cyclist',
-                                      onTap: () => setState(() => _primaryActivity = 'Cyclist'),
+                                      selected: _cyclist,
+                                      onTap: () => setState(() => _cyclist = !_cyclist),
                                     ),
                                   ),
                                   const SizedBox(width: 12),
@@ -659,8 +683,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                     child: _ActivityOption(
                                       icon: Icons.directions_run,
                                       label: 'Runner',
-                                      selected: _primaryActivity == 'Runner',
-                                      onTap: () => setState(() => _primaryActivity = 'Runner'),
+                                      selected: _runner,
+                                      onTap: () => setState(() => _runner = !_runner),
                                     ),
                                   ),
                                 ],

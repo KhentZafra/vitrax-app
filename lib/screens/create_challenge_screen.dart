@@ -1,3 +1,4 @@
+import '../widgets/route_nav_icon.dart';
 import 'package:flutter/material.dart';
 
 import '../models/activity.dart';
@@ -44,16 +45,74 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
     super.dispose();
   }
 
-  InputDecoration _decoration(String label, {String? hint}) {
+  InputDecoration _decoration(String label, {String? hint, IconData? icon}) {
+    OutlineInputBorder border(Color c, [double w = 1.2]) =>
+        OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: BorderSide(color: c, width: w));
     return InputDecoration(
-      labelText: label,
-      hintText: hint,
-      labelStyle: TextStyle(color: Colors.grey.shade400),
+      hintText: hint ?? label,
       hintStyle: TextStyle(color: Colors.grey.shade600),
+      prefixIcon: icon == null ? null : Icon(icon, color: Colors.white54),
       filled: true,
-      fillColor: const Color(0xff141414),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+      fillColor: const Color(0xff0c0f14),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+      border: border(Colors.white12),
+      enabledBorder: border(Colors.white12),
+      focusedBorder: border(Colors.blue, 1.6),
     );
+  }
+
+  Widget _heading(String text) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Text(text, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+      );
+
+  /// Rounded selectable pill with an icon, used for goal type / counts toward.
+  Widget _choice({required IconData icon, required String label, required bool selected, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xff0a77ff) : const Color(0xff0c0f14),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: selected ? Colors.blue : Colors.white24, width: 1.2),
+          boxShadow: selected ? [BoxShadow(color: Colors.blue.withValues(alpha: .35), blurRadius: 12)] : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            AppIcon(icon, color: Colors.white, size: 20),
+            const SizedBox(width: 8),
+            Flexible(child: Text(label, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  IconData _typeIcon(ChallengeType t) {
+    switch (t) {
+      case ChallengeType.distance:
+        return Icons.route;
+      case ChallengeType.activityCount:
+        return Icons.bolt;
+      case ChallengeType.duration:
+        return Icons.schedule;
+      case ChallengeType.route:
+        return Icons.route;
+    }
+  }
+
+  IconData _filterIcon(ChallengeActivityFilter f) {
+    switch (f) {
+      case ChallengeActivityFilter.any:
+        return Icons.groups_outlined;
+      case ChallengeActivityFilter.run:
+        return Icons.directions_run;
+      case ChallengeActivityFilter.ride:
+        return Icons.directions_bike;
+    }
   }
 
   Future<void> _pickDate({required bool isStart}) async {
@@ -146,20 +205,23 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xff050505),
-      appBar: AppBar(backgroundColor: const Color(0xff050505), title: const Text('Create a Challenge')),
+      appBar: AppBar(backgroundColor: const Color(0xff050505), foregroundColor: Colors.white, title: const Text('Create a Challenge', style: TextStyle(fontWeight: FontWeight.w700))),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              TextField(controller: _titleController, style: const TextStyle(color: Colors.white), decoration: _decoration('Title', hint: 'e.g. October Distance Challenge')),
+              _heading('Title'),
+              TextField(controller: _titleController, maxLength: 50, style: const TextStyle(color: Colors.white), decoration: _decoration('Title', hint: 'e.g. October Distance Challenge', icon: Icons.description_outlined)),
               const SizedBox(height: 14),
+              _heading('Description (optional)'),
               TextField(
                 controller: _descriptionController,
                 maxLines: 3,
+                maxLength: 300,
                 style: const TextStyle(color: Colors.white),
-                decoration: _decoration('Description (optional)', hint: 'What\'s this challenge about?'),
+                decoration: _decoration('Description (optional)', hint: 'What\'s this challenge about?', icon: Icons.description_outlined),
               ),
               const SizedBox(height: 20),
 
@@ -167,25 +229,21 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
                 _RouteSummaryCard(activity: widget.seedActivity!),
                 const SizedBox(height: 20),
               ] else ...[
-                const Text('Goal type', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 10),
+                _heading('Goal type'),
                 Wrap(
-                  spacing: 8,
+                  spacing: 10,
+                  runSpacing: 10,
                   // Route is deliberately excluded here — it can only
                   // come from seeding this screen with a just-recorded
                   // activity (see widget.seedActivity), never by typing
                   // a number, since a route challenge needs a real GPS
                   // path to validate attempts against.
                   children: ChallengeType.values.where((t) => t != ChallengeType.route).map((t) {
-                    final selected = _type == t;
-                    return ChoiceChip(
-                      label: Text(t.unitLabel[0].toUpperCase() + t.unitLabel.substring(1)),
-                      selected: selected,
-                      onSelected: (_) => setState(() => _type = t),
-                      backgroundColor: const Color(0xff141414),
-                      selectedColor: Colors.blue.withValues(alpha: .3),
-                      labelStyle: TextStyle(color: selected ? Colors.blue : Colors.grey.shade400),
-                      side: BorderSide(color: selected ? Colors.blue : Colors.white12),
+                    return _choice(
+                      icon: _typeIcon(t),
+                      label: t.unitLabel[0].toUpperCase() + t.unitLabel.substring(1),
+                      selected: _type == t,
+                      onTap: () => setState(() => _type = t),
                     );
                   }).toList(),
                 ),
@@ -194,46 +252,51 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
                   controller: _targetController,
                   keyboardType: TextInputType.number,
                   style: const TextStyle(color: Colors.white),
-                  decoration: _decoration('Target (${_type.unitLabel})', hint: _type == ChallengeType.distance ? 'e.g. 50' : (_type == ChallengeType.activityCount ? 'e.g. 5' : 'e.g. 300')),
+                  decoration: _decoration('Target (${_type.unitLabel})', icon: Icons.outlined_flag),
                 ),
                 const SizedBox(height: 20),
-                const Text('Counts toward', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 10),
+                _heading('Counts toward'),
                 Wrap(
-                  spacing: 8,
+                  spacing: 10,
+                  runSpacing: 10,
                   children: ChallengeActivityFilter.values.map((f) {
-                    final selected = _filter == f;
-                    return ChoiceChip(
-                      label: Text(f.label),
-                      selected: selected,
-                      onSelected: (_) => setState(() => _filter = f),
-                      backgroundColor: const Color(0xff141414),
-                      selectedColor: Colors.blue.withValues(alpha: .3),
-                      labelStyle: TextStyle(color: selected ? Colors.blue : Colors.grey.shade400),
-                      side: BorderSide(color: selected ? Colors.blue : Colors.white12),
+                    return _choice(
+                      icon: _filterIcon(f),
+                      label: f.label,
+                      selected: _filter == f,
+                      onTap: () => setState(() => _filter = f),
                     );
                   }).toList(),
                 ),
                 const SizedBox(height: 20),
               ],
 
-              const Text('Dates', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 10),
+              _heading('Dates'),
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton(
                       onPressed: () => _pickDate(isStart: true),
-                      style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.white24), padding: const EdgeInsets.symmetric(vertical: 14)),
-                      child: Text('Start: ${_startDate.month}/${_startDate.day}/${_startDate.year}', style: const TextStyle(color: Colors.white)),
+                      style: OutlinedButton.styleFrom(backgroundColor: const Color(0xff0c0f14), side: const BorderSide(color: Colors.white12, width: 1.2), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 18), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                      child: Row(children: [
+                        const Icon(Icons.calendar_month_outlined, color: Colors.white70, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(child: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text('Start: ${_startDate.month}/${_startDate.day}/${_startDate.year}', style: const TextStyle(color: Colors.white)))),
+                        const Icon(Icons.keyboard_arrow_down, color: Colors.white70, size: 20),
+                      ]),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: OutlinedButton(
                       onPressed: () => _pickDate(isStart: false),
-                      style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.white24), padding: const EdgeInsets.symmetric(vertical: 14)),
-                      child: Text('End: ${_endDate.month}/${_endDate.day}/${_endDate.year}', style: const TextStyle(color: Colors.white)),
+                      style: OutlinedButton.styleFrom(backgroundColor: const Color(0xff0c0f14), side: const BorderSide(color: Colors.white12, width: 1.2), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 18), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                      child: Row(children: [
+                        const Icon(Icons.calendar_month_outlined, color: Colors.white70, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(child: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text('End: ${_endDate.month}/${_endDate.day}/${_endDate.year}', style: const TextStyle(color: Colors.white)))),
+                        const Icon(Icons.keyboard_arrow_down, color: Colors.white70, size: 20),
+                      ]),
                     ),
                   ),
                 ],
@@ -246,12 +309,19 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
               // winner myself, outside the app, via GCash" — the app's
               // only job is determining who won and giving you their
               // receive-QR.
+              _heading('Add a cash prize'),
               SwitchListTile(
                 value: _hasPrize,
                 onChanged: (v) => setState(() => _hasPrize = v),
-                title: const Text('Add a cash prize', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+                secondary: Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(color: const Color(0xff141a22), borderRadius: BorderRadius.circular(14)),
+                  child: const Icon(Icons.account_balance_wallet_outlined, color: Colors.white70),
+                ),
+                title: const SizedBox.shrink(),
                 subtitle: Text(
-                  'You pay the winner yourself via GCash — Vitrax just determines who won and shows you their QR code.',
+                  'Pay the winner yourself via GCash — just determines who won and shows their QR code.',
                   style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
                 ),
                 activeThumbColor: Colors.blue,
@@ -263,7 +333,7 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
                   controller: _prizeController,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   style: const TextStyle(color: Colors.white),
-                  decoration: _decoration('Prize amount (₱)', hint: 'e.g. 500'),
+                  decoration: _decoration('Prize amount (₱)', icon: Icons.payments_outlined),
                 ),
                 const SizedBox(height: 8),
                 Container(
@@ -289,10 +359,10 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: _submitting ? null : _submit,
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xff0a77ff), foregroundColor: Colors.white, elevation: 6, shadowColor: Colors.blue, padding: const EdgeInsets.symmetric(vertical: 18), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
                   child: _submitting
                       ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Text('Create Challenge', style: TextStyle(fontWeight: FontWeight.w600)),
+                      : const Text('Create Challenge', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17)),
                 ),
               ),
             ],
@@ -377,7 +447,7 @@ class _RouteSummaryCard extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: Colors.grey.shade400, size: 16),
+        AppIcon(icon, color: Colors.grey.shade400, size: 16),
         const SizedBox(height: 6),
         Text(value, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
         Text(label, style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),

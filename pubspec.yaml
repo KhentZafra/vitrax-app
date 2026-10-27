@@ -48,6 +48,7 @@ dependencies:
   path: ^1.9.0
   geocoding: ^3.0.0
   flutter_tts: ^4.0.2
+  vibration: ^2.0.0
   flutter_local_notifications: ^18.0.1
   http: ^1.2.2
   speech_to_text: ^7.0.0
@@ -93,6 +94,11 @@ flutter:
   uses-material-design: true
   assets:
     - assets/img/
+
+  fonts:
+    - family: Orbitron
+      fonts:
+        - asset: assets/fonts/Orbitron.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

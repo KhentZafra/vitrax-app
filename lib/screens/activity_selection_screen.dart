@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:internet_connection_checker_plus/internet_connection_checker_plus.dart';
-import 'package:skeletonizer/skeletonizer.dart';
+import '../widgets/skeleton_views.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/activity.dart';
@@ -145,7 +145,7 @@ class _ActivitySelectionScreenState extends State<ActivitySelectionScreen> {
             )
           : null,
       body: SafeArea(
-        child: Skeletonizer(
+        child: DelayedSkeletonizer(
           enabled: _isLoading,
           child: RefreshIndicator(
             onRefresh: tracking ? () async {} : _checkInternet,

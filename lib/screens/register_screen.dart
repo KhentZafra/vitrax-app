@@ -1,9 +1,12 @@
+import '../widgets/email_code_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/legal_text.dart';
 import 'legal_screen.dart';
 import 'loading_screen.dart';
 import 'dart:async';
+import '../widgets/auth_decor.dart';
+import '../services/activity_preference.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:internet_connection_checker_plus/internet_connection_checker_plus.dart';
 
@@ -35,7 +38,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (accepted == true && mounted) setState(() => agreedToTerms = true);
   }
 
-  int selectedActivity = -1; // 0 = Cyclist, 1 = Runner
+  final Set<int> selectedActivities = {}; // 0 = Cyclist, 1 = Runner (either or both)
 
   String? firstNameError;
   String? lastNameError;
@@ -72,11 +75,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
       controller: controller,
       onChanged: onChanged,
       obscureText: obscure,
-      style: const TextStyle(color: Colors.white),
+      style: const TextStyle(color: Colors.white, fontSize: 16),
       decoration: InputDecoration(
         errorText: errorText,
         hintText: hint,
-        hintStyle: const TextStyle(color: Colors.grey),
+        hintStyle: const TextStyle(color: Color(0xff8e9099), fontSize: 16),
         prefixIcon: Icon(icon, color: Colors.grey),
         suffixIcon: showEye
             ? IconButton(
@@ -90,24 +93,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
               )
             : null,
         filled: true,
-        fillColor: const Color(0xff111111),
+        fillColor: const Color(0xff0b0b0c),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: Colors.grey.shade800),
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Colors.white12),
         ),
 
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           borderSide: const BorderSide(color: Color(0xff3D7DFF), width: 2),
         ),
 
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           borderSide: const BorderSide(color: Colors.red),
         ),
 
         focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           borderSide: const BorderSide(color: Colors.red, width: 2),
         ),
       ),
@@ -120,13 +123,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
     required String title,
     required String subtitle,
   }) {
-    bool selected = selectedActivity == index;
+    bool selected = selectedActivities.contains(index);
 
     return Expanded(
       child: GestureDetector(
         onTap: () {
           setState(() {
-            selectedActivity = index;
+            if (!selectedActivities.remove(index)) selectedActivities.add(index);
           });
         },
         child: Container(
@@ -160,6 +163,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
               ),
               Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisAlignment: MainAxisAlignment.center,
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -177,10 +181,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   Flexible(
                     child: Text(
                       subtitle,
-                      textAlign: TextAlign.center,
+                      textAlign: TextAlign.left,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.grey, fontSize: 12),
+                      style: const TextStyle(color: Color(0xff9a9ca3), fontSize: 14),
                     ),
                   ),
                 ],
@@ -197,11 +201,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(
         title,
-        style: const TextStyle(
-          color: Colors.white70,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 1,
-        ),
+        style: authLabelStyle,
       ),
     );
   }
@@ -266,9 +266,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
       confirmPasswordError = "Passwords do not match.";
       valid = false;
     }
-    if (selectedActivity == -1) {
+    if (selectedActivities.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please select your activity.")),
+        const SnackBar(content: Text("Please select Cyclist, Runner, or both.")),
       );
       return;
     }
@@ -312,7 +312,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         data: {
           'first_name': firstNameController.text.trim(),
           'last_name': lastNameController.text.trim(),
-          'primary_activity': selectedActivity == 0 ? 'Cyclist' : 'Runner',
+          'primary_activity': ActivityPreference.encode(cyclist: selectedActivities.contains(0), runner: selectedActivities.contains(1)),
           // Proof of consent (Data Privacy Act): copied to the profile by
           // the handle_new_user trigger (see supabase/021_consent.sql).
           'consent_version': kPolicyVersion,
@@ -347,40 +347,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
         // gets rejected by the profiles table's row-level security
         // policy (error 42501).
         if (mounted) {
-          await showDialog<void>(
-            context: context,
-            barrierDismissible: false,
-            builder: (dialogContext) => AlertDialog(
-              backgroundColor: const Color(0xff111111),
-              title: const Text('Check your email', style: TextStyle(color: Colors.white)),
-              content: Text(
-                "We've sent a confirmation link to ${emailController.text.trim()}. Open it to verify the address is real before you can sign in.",
-                style: const TextStyle(color: Colors.grey),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () async {
-                    try {
-                      await supabase.auth.resend(type: OtpType.signup, email: emailController.text.trim());
-                      if (dialogContext.mounted) {
-                        ScaffoldMessenger.of(dialogContext).showSnackBar(
-                          const SnackBar(content: Text('Confirmation email resent.')),
-                        );
-                      }
-                    } catch (_) {}
-                  },
-                  child: const Text('Resend Email', style: TextStyle(color: Colors.grey)),
-                ),
-                ElevatedButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xff3D7DFF)),
-                  child: const Text('Got it', style: TextStyle(color: Colors.white)),
-                ),
-              ],
-            ),
+          final email = emailController.text.trim();
+          final ok = await showEmailCodeDialog(
+            context,
+            email: email,
+            type: OtpType.signup,
+            title: 'Verify your email',
+            message: 'We sent a 6-digit code to $email. Enter it to confirm that the address is yours.',
           );
-
-          if (mounted) Navigator.pop(context);
+          if (!mounted) return;
+          if (ok) {
+            Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoadingScreen()), (route) => false);
+          } else {
+            // Cancelled: the account exists but is unconfirmed; they can
+            // verify later from the sign-in screen (Resend).
+            Navigator.pop(context);
+          }
         }
       }
     } on AuthException catch (e) {
@@ -451,8 +433,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
+      backgroundColor: const Color(0xff020304),
+      body: AuthImageDecor(child: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24),
           child: Column(
@@ -463,32 +445,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 icon: const Icon(Icons.arrow_back, color: Colors.white),
               ),
 
-              const SizedBox(height: 10),
-
-              Center(
-                child: Image.asset("assets/img/vitrax_logo.png", height: 95),
-              ),
-
-              const SizedBox(height: 30),
+              const SizedBox(height: 14),
 
               const Text(
-                "Create your account",
-                style: TextStyle(
-                  fontSize: 34,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
+                "Create your",
+                style: TextStyle(fontSize: 40, fontWeight: FontWeight.w800, color: Colors.white, height: 1.05),
+              ),
+              const Text(
+                "account",
+                style: TextStyle(fontSize: 40, fontWeight: FontWeight.w800, color: Color(0xff2f7bff), height: 1.05),
               ),
 
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
 
               const Text(
                 "Join VitraX and start your journey today",
-                style: TextStyle(color: Colors.grey, fontSize: 16),
+                style: authBodyStyle,
               ),
 
-              const SizedBox(height: 35),
-              const SizedBox(height: 25),
+              const SizedBox(height: 28),
 
               if (!isConnected)
                 Container(
@@ -631,19 +606,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
               const SizedBox(height: 28),
 
-              const Text(
-                "PRIMARY ACTIVITY",
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              Text("PRIMARY ACTIVITY", style: authLabelStyle),
 
-              const SizedBox(height: 5),
+              const SizedBox(height: 8),
 
               const Text(
-                "Choose your main activity to personalize your experience.",
-                style: TextStyle(color: Colors.grey),
+                "Choose one or both to personalize your experience.",
+                style: authBodyStyle,
               ),
 
               const SizedBox(height: 18),
@@ -654,14 +623,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     index: 0,
                     icon: Icons.directions_bike,
                     title: "Cyclist",
-                    subtitle: "Join cycling events,\ntrack rides and connect.",
+                    subtitle: "Join cycling events,\ntrack rides and more.",
                   ),
                   const SizedBox(width: 15),
                   activityCard(
                     index: 1,
                     icon: Icons.directions_run,
                     title: "Runner",
-                    subtitle: "Join running events,\ntrack runs and connect.",
+                    subtitle: "Join running events,\ntrack runs and more.",
                   ),
                 ],
               ),
@@ -688,17 +657,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       child: Wrap(
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          const Text('I agree to the ', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                          const Text('I agree to the ', style: authBodyStyle),
                           InkWell(
                             onTap: () => _openLegal(0),
-                            child: const Text('Privacy Policy', style: TextStyle(color: Color(0xff3D7DFF), fontSize: 13, fontWeight: FontWeight.bold)),
+                            child: const Text('Privacy Policy', style: authLinkStyle),
                           ),
-                          const Text(' and ', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                          const Text(' and ', style: authBodyStyle),
                           InkWell(
                             onTap: () => _openLegal(1),
-                            child: const Text('Terms of Use', style: TextStyle(color: Color(0xff3D7DFF), fontSize: 13, fontWeight: FontWeight.bold)),
+                            child: const Text('Terms of Use', style: authLinkStyle),
                           ),
-                          const Text('.', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                          const Text('.', style: authBodyStyle),
                         ],
                       ),
                     ),
@@ -708,38 +677,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
               const SizedBox(height: 22),
 
-              SizedBox(
-                width: double.infinity,
-                height: 58,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xff3D7DFF),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(15),
-                    ),
-                  ),
-                  onPressed: isLoading ? null : registerUser,
-                  child: isLoading
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text(
-                          "Create Account",
-                          style: TextStyle(
-                            fontSize: 20,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                ),
+              GlowButton(
+                label: "Create Account",
+                loading: isLoading,
+                onPressed: isLoading ? null : registerUser,
               ),
 
-              const SizedBox(height: 35),
+              const SizedBox(height: 28),
 
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   const Text(
                     "Already have an account?",
-                    style: TextStyle(color: Colors.grey),
+                    style: authBodyStyle,
                   ),
                   TextButton(
                     onPressed: () {
@@ -747,10 +698,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     },
                     child: const Text(
                       "Sign In",
-                      style: TextStyle(
-                        color: Color(0xFF3D7DFF),
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: authLinkStyle,
                     ),
                   ),
                 ],
@@ -760,7 +708,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 }

@@ -1,3 +1,6 @@
+import '../widgets/map_pin_marker.dart';
+import '../widgets/route_end_marker.dart';
+import '../widgets/route_nav_icon.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -7,7 +10,6 @@ import 'package:geolocator/geolocator.dart' hide ActivityType;
 import 'package:latlong2/latlong.dart';
 
 import '../models/activity.dart';
-import '../widgets/map_pin_marker.dart';
 
 /// Distance in meters between two points, via the haversine formula.
 /// Kept local (same formula routes_screen.dart already uses for hazard
@@ -183,20 +185,10 @@ class _TrackRouteScreenState extends State<TrackRouteScreen> {
                 ),
               MarkerLayer(
                 markers: [
-                  if (_referencePoints.isNotEmpty)
-                    Marker(
-                      point: _referencePoints.first,
-                      width: 26,
-                      height: 26,
-                      child: Container(decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.green, border: Border.all(color: Colors.white, width: 2))),
-                    ),
                   if (_referencePoints.length > 1)
-                    Marker(
-                      point: _referencePoints.last,
-                      width: 36,
-                      height: 36,
-                      alignment: Alignment.bottomCenter,
-                      child: const MapPinMarker(size: 36),
+                    ...RouteEndMarker.markers(
+                      [_referencePoints.first, _referencePoints.last],
+                      widget.activity.type,
                     ),
                   if (_currentLatLng != null)
                     Marker(
@@ -253,7 +245,7 @@ class _TrackRouteScreenState extends State<TrackRouteScreen> {
                 setState(() => _followMe = false);
                 _fitToRoute();
               },
-              child: const Icon(Icons.route, color: Colors.white),
+              child: const RouteNavIcon(color: Colors.white, size: 24),
             ),
           ),
 

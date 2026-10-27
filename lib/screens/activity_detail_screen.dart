@@ -1,3 +1,4 @@
+import '../widgets/route_end_marker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart' hide ActivityType;
@@ -34,15 +35,22 @@ class ActivityDetailScreen extends StatelessWidget {
     final route = activity.route;
     if (route.length < 2) return 0;
 
-    final maxPlausibleKmh = activity.type == ActivityType.ride ? 70.0 : 45.0;
+    final maxPlausibleKmh = activity.type == ActivityType.ride ? 60.0 : 40.0;
     double maxSpeed = 0;
 
+    // Speed over windows of at least 5 seconds, not between two single
+    // points: one noisy fix (or fixes that arrived late after a signal gap)
+    // used to create a fake spike such as 67 km/h on a bicycle.
+    var start = 0;
     for (var i = 1; i < route.length; i++) {
-      final a = route[i - 1];
+      while (start < i - 1 && route[i].timestamp.difference(route[start + 1].timestamp).inSeconds >= 5) {
+        start++;
+      }
+      final a = route[start];
       final b = route[i];
-      final meters = Geolocator.distanceBetween(a.lat, a.lng, b.lat, b.lng);
       final seconds = b.timestamp.difference(a.timestamp).inMilliseconds / 1000;
-      if (seconds <= 0) continue;
+      if (seconds < 5) continue;
+      final meters = Geolocator.distanceBetween(a.lat, a.lng, b.lat, b.lng);
       final kmh = (meters / seconds) * 3.6;
       if (kmh <= maxPlausibleKmh && kmh > maxSpeed) maxSpeed = kmh;
     }
@@ -136,34 +144,7 @@ class ActivityDetailScreen extends StatelessWidget {
                               PolylineLayer(
                                 polylines: [Polyline(points: _routePoints, color: Colors.blue, strokeWidth: 4)],
                               ),
-                              MarkerLayer(
-                                markers: [
-                                  Marker(
-                                    point: _routePoints.first,
-                                    width: 16,
-                                    height: 16,
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        color: Colors.green,
-                                        border: Border.all(color: Colors.white, width: 2),
-                                      ),
-                                    ),
-                                  ),
-                                  Marker(
-                                    point: _routePoints.last,
-                                    width: 16,
-                                    height: 16,
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        color: Colors.red,
-                                        border: Border.all(color: Colors.white, width: 2),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
+                              MarkerLayer(markers: RouteEndMarker.markers(_routePoints, activity.type)),
                             ],
                           )
                         : Container(

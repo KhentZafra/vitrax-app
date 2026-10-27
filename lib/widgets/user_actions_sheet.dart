@@ -131,9 +131,10 @@ class _UserActionsSheetState extends State<_UserActionsSheet> {
     }
 
     if (wasBlocked) {
-      if (!_ctx.mounted) return;
-      if (!await confirmUnblock(_ctx, widget.userName)) return;
-      if (!_ctx.mounted) return;
+      final ctx = _ctx;
+      if (!ctx.mounted) return;
+      if (!await confirmUnblock(ctx, widget.userName)) return;
+      if (!ctx.mounted) return;
     }
     final ok = wasBlocked ? await ChatService.unblockUser(widget.userId) : await ChatService.blockUser(widget.userId);
     _snack(ok ? (wasBlocked ? '${widget.userName} is unblocked.' : '${widget.userName} is blocked.') : "Couldn't update. Try again.");

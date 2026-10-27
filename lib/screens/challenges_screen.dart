@@ -1,8 +1,11 @@
+import '../widgets/route_nav_icon.dart';
 import 'package:flutter/material.dart';
 import '../widgets/skeleton_views.dart';
 
 import '../models/challenge.dart';
+import '../services/activity_preference.dart';
 import '../services/challenge_service.dart';
+import '../widgets/preferred_highlight.dart';
 import 'challenge_detail_screen.dart';
 import 'create_challenge_screen.dart';
 
@@ -19,6 +22,7 @@ class ChallengesScreen extends StatefulWidget {
 class _ChallengesScreenState extends State<ChallengesScreen> {
   List<Challenge> _challenges = [];
   bool _isLoading = true;
+  ActivityPreference _pref = ActivityPreference.none;
   final Set<String> _expanded = {};
 
   @override
@@ -30,9 +34,11 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
   Future<void> _load() async {
     setState(() => _isLoading = true);
     final challenges = await ChallengeService.fetchChallenges();
+    final pref = await ActivityPreference.load();
     if (!mounted) return;
     setState(() {
       _challenges = challenges;
+      _pref = pref;
       _isLoading = false;
     });
   }
@@ -65,7 +71,9 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      floatingActionButton: GestureDetector(
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.only(bottom: 92),
+        child: GestureDetector(
         onTap: _openCreate,
         child: Container(
           width: 56,
@@ -78,13 +86,14 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
           child: const Icon(Icons.add, color: Colors.white, size: 28),
         ),
       ),
+      ),
       body: _isLoading
           ? const CardsSkeleton()
           : RefreshIndicator(
               onRefresh: _load,
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 130),
                 children: [
                   const _ChallengesBanner(),
                   const SizedBox(height: 18),
@@ -112,7 +121,14 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
 
   static const _collapsedCount = 3;
 
-  List<Widget> _section(String title, List<Challenge> items) {
+  List<Widget> _section(String title, List<Challenge> unsorted) {
+    // Challenges for the user's chosen activity (cyclist / runner / both) first.
+    final items = [...unsorted]
+      ..sort((a, b) {
+        final am = _pref.matchesFilter(a.activityFilter) ? 0 : 1;
+        final bm = _pref.matchesFilter(b.activityFilter) ? 0 : 1;
+        return am.compareTo(bm);
+      });
     final expanded = _expanded.contains(title);
     final canToggle = items.length > _collapsedCount;
     final shown = expanded || !canToggle ? items : items.take(_collapsedCount).toList();
@@ -140,7 +156,10 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
           ],
         ),
       ),
-      ...shown.map((c) => _ChallengeCard(challenge: c, goalLabel: _goalLabel(c), onTap: () => _openDetail(c))),
+      ...shown.map((c) {
+        final card = _ChallengeCard(challenge: c, goalLabel: _goalLabel(c), onTap: () => _openDetail(c));
+        return _pref.matchesFilter(c.activityFilter) ? Padding(padding: const EdgeInsets.only(bottom: 14), child: PreferredHighlight(child: card)) : card;
+      }),
       const SizedBox(height: 10),
     ];
   }
@@ -254,7 +273,7 @@ class _ChallengeCard extends StatelessWidget {
   Widget _meta(IconData icon, String text) => Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: Colors.grey.shade400, size: 15),
+          AppIcon(icon, color: Colors.grey.shade400, size: 15),
           const SizedBox(width: 5),
           Text(text, style: TextStyle(color: Colors.grey.shade300, fontSize: 12)),
         ],

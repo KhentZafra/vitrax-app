@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/chat_message.dart';
 import '../providers/chat_unread_provider.dart';
@@ -28,7 +29,17 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
 
   List<ChatMessage> _messages = [];
   bool _isLoading = true;
-  bool _sending = false;
+
+  // Messages I just sent that the server has not echoed back yet. They show
+  // instantly (like Messenger) and are replaced by the real message.
+  final List<ChatMessage> _pending = [];
+  // Messages that should play the pop-in animation (new ones only).
+  final Set<String> _seenIds = {};
+  final Set<String> _animateIds = {};
+  RealtimeChannel? _typingChannel;
+  Timer? _typingHideTimer;
+  DateTime? _lastTypingSentAt;
+  bool _otherTyping = false;
   bool _blockedByMe = false;
   bool _checkingBlockStatus = true;
   String? _avatarUrl;
@@ -44,10 +55,32 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
     }
     _load();
     _checkBlockStatus();
+    _typingChannel = ChatService.openTypingChannel(widget.conversationId, (userId) {
+      if (userId != widget.otherUserId || !mounted) return;
+      final wasAtBottom = _isNearBottom();
+      setState(() => _otherTyping = true);
+      if (wasAtBottom) _scrollToBottom();
+      _typingHideTimer?.cancel();
+      _typingHideTimer = Timer(const Duration(seconds: 4), () {
+        if (mounted) setState(() => _otherTyping = false);
+      });
+    });
+  }
+
+  void _onTextChanged(String text) {
+    final channel = _typingChannel;
+    if (channel == null || text.trim().isEmpty) return;
+    final now = DateTime.now();
+    if (_lastTypingSentAt != null && now.difference(_lastTypingSentAt!) < const Duration(seconds: 2)) return;
+    _lastTypingSentAt = now;
+    ChatService.sendTyping(channel);
   }
 
   @override
   void dispose() {
+    _typingHideTimer?.cancel();
+    final channel = _typingChannel;
+    if (channel != null) ChatService.closeTypingChannel(channel);
     _controller.dispose();
     _scrollController.dispose();
     _sub?.cancel();
@@ -141,6 +174,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
     if (!mounted) return;
     setState(() {
       _messages = initial;
+      _seenIds.addAll(initial.map((m) => m.id));
       _isLoading = false;
     });
     _scrollToBottom();
@@ -161,8 +195,20 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
     _sub = ChatService.streamMessages(widget.conversationId).listen((messages) {
       if (!mounted) return;
       final wasAtBottom = _isNearBottom();
-      setState(() => _messages = messages);
-      if (wasAtBottom) _scrollToBottom();
+      final fresh = messages.where((m) => !_seenIds.contains(m.id)).toList();
+      setState(() {
+        _messages = messages;
+        for (final m in fresh) {
+          _seenIds.add(m.id);
+          _animateIds.add(m.id);
+          Timer(const Duration(milliseconds: 700), () => _animateIds.remove(m.id));
+          // Their message arrived: they are no longer "typing".
+          if (!m.isMine) _otherTyping = false;
+        }
+        // The server has echoed my message: drop its temporary copy.
+        _pending.removeWhere((p) => messages.any((m) => m.isMine && m.body == p.body && m.createdAt.isAfter(p.createdAt.subtract(const Duration(seconds: 15)))));
+      });
+      if (wasAtBottom || fresh.any((m) => m.isMine)) _scrollToBottom();
       // A message that streams in while this screen is open was just
       // seen by the user — keep it marked read rather than letting it
       // silently go stale until they leave and come back.
@@ -184,15 +230,30 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
 
   Future<void> _send() async {
     final text = _controller.text.trim();
-    if (text.isEmpty || _sending) return;
+    if (text.isEmpty) return;
 
-    setState(() => _sending = true);
     _controller.clear();
+    // Show it right away, before the network answers.
+    final temp = ChatMessage(
+      id: 'local-${DateTime.now().microsecondsSinceEpoch}',
+      conversationId: widget.conversationId,
+      senderId: Supabase.instance.client.auth.currentUser?.id ?? '',
+      body: text,
+      createdAt: DateTime.now(),
+      isMine: true,
+    );
+    setState(() {
+      _pending.add(temp);
+      _animateIds.add(temp.id);
+    });
+    Timer(const Duration(milliseconds: 700), () => _animateIds.remove(temp.id));
+    _scrollToBottom();
+
     final success = await ChatService.sendMessage(widget.conversationId, text);
     if (!mounted) return;
-    setState(() => _sending = false);
 
     if (!success) {
+      setState(() => _pending.removeWhere((p) => p.id == temp.id));
       _controller.text = text; // give it back so they don't lose what they typed
       ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't send, Please check your connection and try again.")));
@@ -252,8 +313,20 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                       : ListView.builder(
                           controller: _scrollController,
                           padding: const EdgeInsets.all(16),
-                          itemCount: _messages.length,
-                          itemBuilder: (context, index) => _MessageBubble(message: _messages[index]),
+                          itemCount: _messages.length + _pending.length + (_otherTyping ? 1 : 0),
+                          itemBuilder: (context, index) {
+                            if (index < _messages.length + _pending.length) {
+                              final isPending = index >= _messages.length;
+                              final m = isPending ? _pending[index - _messages.length] : _messages[index];
+                              return _PopIn(
+                                key: ValueKey(m.id),
+                                animate: _animateIds.contains(m.id),
+                                fromRight: m.isMine,
+                                child: Opacity(opacity: isPending ? 0.7 : 1, child: _MessageBubble(message: m)),
+                              );
+                            }
+                            return const _PopIn(animate: true, fromRight: false, child: _TypingBubble());
+                          },
                         ),
             ),
             if (_checkingBlockStatus)
@@ -290,15 +363,14 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
                         ),
+                        onChanged: _onTextChanged,
                         onSubmitted: (_) => _send(),
                       ),
                     ),
                     const SizedBox(width: 8),
                     IconButton(
-                      onPressed: _sending ? null : _send,
-                      icon: _sending
-                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                          : const Icon(Icons.send_rounded, color: Colors.blue),
+                      onPressed: _send,
+                      icon: const Icon(Icons.send_rounded, color: Colors.blue),
                     ),
                   ],
                 ),
@@ -339,6 +411,84 @@ class _MessageBubble extends StatelessWidget {
             const SizedBox(height: 3),
             Text(DateFormat.jm().format(message.createdAt), style: TextStyle(color: Colors.white.withValues(alpha: .6), fontSize: 10)),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+
+/// Pop-in for a message that just appeared (fade + slide up + slight scale),
+/// like Messenger. Messages that were already there are shown as they are.
+class _PopIn extends StatelessWidget {
+  final Widget child;
+  final bool animate;
+  final bool fromRight;
+  const _PopIn({super.key, required this.child, required this.animate, required this.fromRight});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!animate) return child;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutBack,
+      child: child,
+      builder: (context, v, child) => Opacity(
+        opacity: v.clamp(0.0, 1.0),
+        child: Transform.translate(
+          offset: Offset(0, (1 - v) * 14),
+          child: Transform.scale(scale: 0.88 + 0.12 * v, alignment: fromRight ? Alignment.bottomRight : Alignment.bottomLeft, child: child),
+        ),
+      ),
+    );
+  }
+}
+
+/// The three bouncing dots shown while the other person is typing.
+class _TypingBubble extends StatefulWidget {
+  const _TypingBubble();
+
+  @override
+  State<_TypingBubble> createState() => _TypingBubbleState();
+}
+
+class _TypingBubbleState extends State<_TypingBubble> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 1000))..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: const BoxDecoration(
+          color: Color(0xff1a1a1a),
+          borderRadius: BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16), bottomLeft: Radius.circular(4), bottomRight: Radius.circular(16)),
+        ),
+        child: AnimatedBuilder(
+          animation: _c,
+          builder: (context, _) => Row(
+            mainAxisSize: MainAxisSize.min,
+            children: List.generate(3, (i) {
+              final t = (_c.value - i * 0.18) % 1.0;
+              final bounce = t < 0.5 ? (1 - (t - 0.25).abs() * 4).clamp(0.0, 1.0) : 0.0;
+              return Container(
+                margin: EdgeInsets.only(right: i < 2 ? 5 : 0),
+                width: 8,
+                height: 8,
+                transform: Matrix4.translationValues(0, -4 * bounce, 0),
+                decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withValues(alpha: .45 + .4 * bounce)),
+              );
+            }),
+          ),
         ),
       ),
     );

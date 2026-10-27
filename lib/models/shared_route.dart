@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import 'activity.dart';
 import 'hazard_cluster.dart';
@@ -86,9 +87,31 @@ class SharedRoute {
   final String? sharerAvatarUrl;
   final List<HazardReport> hazards;
 
-  SharedRoute({required this.activity, required this.sharerName, this.sharerAvatarUrl, required this.hazards});
+  /// When the route was shared (falls back to when the activity was saved).
+  final DateTime? sharedAt;
 
-  factory SharedRoute.fromMap(Map<String, dynamic> map, {required List<HazardReport> hazards}) {
+  /// Likes from other users, and whether the current user liked it.
+  int likeCount;
+  bool likedByMe;
+
+  SharedRoute({required this.activity, required this.sharerName, this.sharerAvatarUrl, required this.hazards, this.sharedAt, this.likeCount = 0, this.likedByMe = false});
+
+  /// "Today, 1:49 PM", "Yesterday, 8:05 AM" or "Oct 25, 1:49 PM".
+  String get sharedWhenLabel {
+    final t = sharedAt;
+    if (t == null) return '';
+    final now = DateTime.now();
+    final day = DateTime(t.year, t.month, t.day);
+    final today = DateTime(now.year, now.month, now.day);
+    final time = DateFormat.jm().format(t);
+    final diff = today.difference(day).inDays;
+    if (diff == 0) return 'Today, $time';
+    if (diff == 1) return 'Yesterday, $time';
+    final date = t.year == now.year ? DateFormat.MMMd().format(t) : DateFormat.yMMMd().format(t);
+    return '$date, $time';
+  }
+
+  factory SharedRoute.fromMap(Map<String, dynamic> map, {required List<HazardReport> hazards, int likeCount = 0, bool likedByMe = false}) {
     final activity = Activity.fromMap(map);
     final profile = map['profiles'] as Map<String, dynamic>?;
     final first = profile?['first_name'] as String? ?? '';
@@ -100,6 +123,9 @@ class SharedRoute {
       sharerName: name.isEmpty ? 'A Vitrax user' : name,
       sharerAvatarUrl: profile?['avatar_url'] as String?,
       hazards: hazards,
+      likeCount: likeCount,
+      likedByMe: likedByMe,
+      sharedAt: DateTime.tryParse('${map['shared_at'] ?? map['created_at'] ?? ''}')?.toLocal(),
     );
   }
 

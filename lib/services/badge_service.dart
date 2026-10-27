@@ -118,6 +118,14 @@ class BadgeService {
       thresholds: [1, 5, 15, 30, 60, 100],
     ),
     BadgeDef(
+      key: 'route_likes',
+      title: 'Crowd Favorite',
+      description: 'Get likes on the routes you share.',
+      unit: 'route likes',
+      icon: Icons.favorite_outline,
+      thresholds: [1, 5, 15, 30, 60, 100],
+    ),
+    BadgeDef(
       key: 'community_voice',
       title: 'Community Voice',
       description: 'Post and comment in the community feed.',

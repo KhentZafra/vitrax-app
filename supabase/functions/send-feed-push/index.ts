@@ -22,6 +22,8 @@ const ACTIONS: Record<string, string> = {
   comment: "commented on your post",
   reply: "replied to your comment",
   reshare: "reshared your post",
+  route_like: "liked a route you shared",
+  route_retrace: "retraced your route",
 };
 
 Deno.serve(async (req) => {
@@ -30,6 +32,11 @@ Deno.serve(async (req) => {
   }
 
   const { user_id, actor_id, type, post_kind, post_id, body } = await req.json();
+
+  // Badges are celebrated inside the app; no phone notification for them.
+  if (type === "badge") {
+    return new Response(JSON.stringify({ skipped: "badge notifications are in-app only" }), { headers: { "Content-Type": "application/json" } });
+  }
 
   const [recipientRes, actorRes] = await Promise.all([
     fetch(`${supabaseUrl}/rest/v1/profiles?id=eq.${user_id}&select=fcm_token`, { headers }),
@@ -45,11 +52,29 @@ Deno.serve(async (req) => {
   const action = ACTIONS[type] ?? "interacted with your post";
   const text = body ? `${actorName} ${action}: "${String(body).slice(0, 120)}"` : `${actorName} ${action}.`;
 
+  // Combine many interactions into one notification: count the unread ones
+  // from the last 12 hours (this one is already saved) and replace the
+  // earlier phone notification instead of stacking a new one each time.
+  let unread = 1;
+  try {
+    const since = new Date(Date.now() - 12 * 3600 * 1000).toISOString();
+    const cRes = await fetch(
+      `${supabaseUrl}/rest/v1/feed_notifications?user_id=eq.${user_id}&is_read=eq.false&type=neq.badge&created_at=gte.${since}&select=id&limit=100`,
+      { headers },
+    );
+    const rows = await cRes.json();
+    if (Array.isArray(rows) && rows.length > 0) unread = rows.length;
+  } catch (_) { /* keep the single-notification text */ }
+  const finalText = unread > 1
+    ? `${actorName} and ${unread - 1} ${unread - 1 === 1 ? "other" : "others"} interacted with your posts and routes (${unread} new).`
+    : text;
+
   try {
     const messageId = await admin.messaging().send({
       token,
-      notification: { title: "Vitrax Community", body: text },
+      notification: { title: "Vitrax Community", body: finalText },
       data: { type: "feed_notification", notification_type: String(type), post_kind: String(post_kind), post_id: String(post_id) },
+      android: { priority: "high", notification: { channelId: "vitrax_push", sound: "default", tag: "vitrax_feed" } },
     });
     return new Response(JSON.stringify({ messageId }), { headers: { "Content-Type": "application/json" } });
   } catch (e) {

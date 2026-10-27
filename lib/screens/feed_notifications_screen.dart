@@ -9,6 +9,7 @@ import '../models/feed_notification.dart';
 import '../services/feed_notification_service.dart';
 import '../services/notification_router.dart';
 import '../services/table_watcher.dart';
+import '../services/badge_service.dart';
 import '../widgets/user_avatar.dart';
 
 /// Who liked, commented on, replied to or reshared your feed posts.
@@ -74,7 +75,12 @@ class _FeedNotificationsScreenState extends State<FeedNotificationsScreen> {
   IconData _icon(String type) {
     switch (type) {
       case 'like':
+      case 'route_like':
         return Icons.favorite;
+      case 'route_retrace':
+        return Icons.directions_bike;
+      case 'badge':
+        return Icons.emoji_events;
       case 'reshare':
         return Icons.repeat;
       default:
@@ -87,7 +93,17 @@ class _FeedNotificationsScreenState extends State<FeedNotificationsScreen> {
     // the router fetches the post. Likes and reshares open the post too.
     final kind = n.postKind == 'activity' ? FeedItemKind.activityShare : FeedItemKind.standalonePost;
     final matches = widget.items.where((i) => i.id == n.postId && i.kind == kind);
-    NotificationRouter.openFeed(n, known: matches.isEmpty ? null : matches.first);
+    NotificationRouter.openNotification(n, known: matches.isEmpty ? null : matches.first);
+  }
+
+  /// "route_pioneer:bronze" -> "Route Pioneer (Bronze)".
+  String _badgeText(String? body) {
+    final parts = (body ?? '').split(':');
+    if (parts.length != 2) return 'a new badge';
+    final matches = BadgeService.defs.where((d) => d.key == parts[0]);
+    final title = matches.isEmpty ? parts[0].replaceAll('_', ' ') : matches.first.title;
+    final tier = parts[1].isEmpty ? '' : parts[1][0].toUpperCase() + parts[1].substring(1);
+    return '$title ($tier)';
   }
 
   @override
@@ -121,13 +137,15 @@ class _FeedNotificationsScreenState extends State<FeedNotificationsScreen> {
                               Stack(
                                 clipBehavior: Clip.none,
                                 children: [
-                                  UserAvatar(avatarUrl: n.actorAvatarUrl, radius: 22),
+                                  n.isBadge
+                                      ? const CircleAvatar(radius: 22, backgroundColor: Color(0xff2a2110), child: Icon(Icons.emoji_events, color: Color(0xffFFC83D), size: 24))
+                                      : UserAvatar(avatarUrl: n.actorAvatarUrl, radius: 22),
                                   Positioned(
                                     right: -4,
                                     bottom: -4,
                                     child: Container(
                                       padding: const EdgeInsets.all(3),
-                                      decoration: BoxDecoration(color: n.type == 'like' ? Colors.red : Colors.blue, shape: BoxShape.circle),
+                                      decoration: BoxDecoration(color: (n.type == 'like' || n.type == 'route_like') ? Colors.red : (n.isBadge ? const Color(0xffFFC83D) : Colors.blue), shape: BoxShape.circle),
                                       child: Icon(_icon(n.type), size: 10, color: Colors.white),
                                     ),
                                   ),
@@ -139,13 +157,19 @@ class _FeedNotificationsScreenState extends State<FeedNotificationsScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text.rich(
-                                      TextSpan(children: [
-                                        TextSpan(text: n.actorName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                        TextSpan(text: ' ${n.message}'),
-                                      ]),
+                                      n.isBadge
+                                          ? TextSpan(children: [
+                                              const TextSpan(text: 'You earned the '),
+                                              TextSpan(text: _badgeText(n.body), style: const TextStyle(fontWeight: FontWeight.bold)),
+                                              const TextSpan(text: ' badge.'),
+                                            ])
+                                          : TextSpan(children: [
+                                              TextSpan(text: n.actorName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                              TextSpan(text: ' ${n.message}'),
+                                            ]),
                                       style: const TextStyle(color: Colors.white, fontSize: 14),
                                     ),
-                                    if ((n.body ?? '').isNotEmpty)
+                                    if ((n.body ?? '').isNotEmpty && !n.isBadge)
                                       Padding(
                                         padding: const EdgeInsets.only(top: 4),
                                         child: Text('"${n.body}"', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white60, fontSize: 13)),

@@ -52,7 +52,8 @@ class Activity {
   final Duration duration;
   final DateTime startedAt;
   final List<GpsPoint> route;
-  final bool shared; // true once shared to the community feed
+  final bool shared; // true once shared as a route (Routes tab)
+  final bool sharedToFeed; // true once also posted on the Community feed
   final String? caption; // optional note written when sharing
   final String? photoUrl; // optional photo attached when sharing
   // Human-readable place name (e.g. "Panglao, Bohol"), reverse-geocoded
@@ -62,6 +63,10 @@ class Activity {
   // for activities saved before this field existed — always optional,
   // never required to display an activity.
   final String? location;
+
+  /// If this was recorded by retracing someone's shared route, that route's
+  /// activity id (so its owner can be told).
+  final String? retracedFrom;
 
   // Client-side only — never sent to or read from Supabase. True for an
   // activity that was recorded offline and is queued locally, waiting
@@ -78,9 +83,11 @@ class Activity {
     required this.startedAt,
     this.route = const [],
     this.shared = false,
+    this.sharedToFeed = false,
     this.caption,
     this.photoUrl,
     this.location,
+    this.retracedFrom,
     this.pendingSync = false,
   });
 
@@ -116,6 +123,7 @@ class Activity {
               .toList() ??
           const [],
       shared: map['shared'] as bool? ?? false,
+      sharedToFeed: map['shared_to_feed'] as bool? ?? false,
       caption: map['caption'] as String?,
       photoUrl: map['photo_url'] as String?,
       // Missing key (older rows, or before the `location` column
@@ -137,11 +145,13 @@ class Activity {
       'started_at': startedAt.toIso8601String(),
       'route': route.map((p) => p.toJson()).toList(),
       'location': location,
+      if (retracedFrom != null) 'retraced_from': retracedFrom,
     };
   }
 
   Activity copyWith({
     bool? shared,
+    bool? sharedToFeed,
     String? caption,
     String? photoUrl,
     String? id,
@@ -158,9 +168,11 @@ class Activity {
       startedAt: startedAt,
       route: route,
       shared: shared ?? this.shared,
+      sharedToFeed: sharedToFeed ?? this.sharedToFeed,
       caption: caption ?? this.caption,
       photoUrl: photoUrl ?? this.photoUrl,
       location: location ?? this.location,
+      retracedFrom: retracedFrom,
       pendingSync: pendingSync ?? this.pendingSync,
     );
   }
@@ -180,6 +192,7 @@ class Activity {
       'started_at': startedAt.toIso8601String(),
       'route': route.map((p) => p.toJson()).toList(),
       'location': location,
+      'retraced_from': retracedFrom,
     };
   }
 
@@ -196,6 +209,7 @@ class Activity {
           .map((p) => GpsPoint.fromJson(p as Map<String, dynamic>))
           .toList(),
       location: json['location'] as String?,
+      retracedFrom: json['retraced_from'] as String?,
       pendingSync: true,
     );
   }

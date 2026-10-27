@@ -26,17 +26,33 @@ Deno.serve(async (req) => {
   }
 
   const payload = await req.json();
-  const { conversation_id, sender_id, body } = payload;
+  const { conversation_id, sender_id, body, is_first } = payload;
 
   // Everyone else in this conversation (not the sender) plus their FCM
   // token, via Supabase's REST API using the service role key — this
   // runs server-side and is trusted, so it deliberately bypasses RLS
   // rather than trying to act as any particular user.
   const participantsRes = await fetch(
-    `${supabaseUrl}/rest/v1/conversation_participants?conversation_id=eq.${conversation_id}&user_id=neq.${sender_id}&select=user_id,profiles(fcm_token)`,
+    `${supabaseUrl}/rest/v1/conversation_participants?conversation_id=eq.${conversation_id}&user_id=neq.${sender_id}&select=user_id`,
     { headers: { apikey: supabaseServiceRoleKey, Authorization: `Bearer ${supabaseServiceRoleKey}` } },
   );
-  const participants = await participantsRes.json();
+  const participantRows = await participantsRes.json();
+  if (!Array.isArray(participantRows)) {
+    return new Response(JSON.stringify({ error: "participants lookup failed", detail: participantRows }), { status: 500, headers: { "Content-Type": "application/json" } });
+  }
+  const ids = participantRows.map((r: { user_id: string }) => r.user_id);
+  if (ids.length === 0) {
+    return new Response(JSON.stringify({ skipped: "no other participants" }), { headers: { "Content-Type": "application/json" } });
+  }
+  const tokensRes = await fetch(
+    `${supabaseUrl}/rest/v1/profiles?id=in.(${ids.join(",")})&select=id,fcm_token`,
+    { headers: { apikey: supabaseServiceRoleKey, Authorization: `Bearer ${supabaseServiceRoleKey}` } },
+  );
+  const tokenRows = await tokensRes.json();
+  const participants = (Array.isArray(tokenRows) ? tokenRows : []).map((r: { id: string; fcm_token: string | null }) => ({
+    user_id: r.id,
+    profiles: { fcm_token: r.fcm_token },
+  }));
 
   const senderRes = await fetch(
     `${supabaseUrl}/rest/v1/profiles?id=eq.${sender_id}&select=first_name,last_name`,
@@ -52,8 +68,13 @@ Deno.serve(async (req) => {
     try {
       const messageId = await admin.messaging().send({
         token,
-        notification: { title: senderName, body: String(body).slice(0, 200) },
+        // A brand-new chat only says that someone messaged you; an ongoing
+        // conversation shows the sender's name and the message itself.
+        notification: is_first
+          ? { title: "Vitrax", body: "Someone messaged you" }
+          : { title: senderName, body: String(body).slice(0, 200) },
         data: { type: "chat_message", conversation_id: String(conversation_id) },
+        android: { priority: "high", notification: { channelId: "vitrax_push", sound: "default" } },
       });
       results.push({ user_id: p.user_id, messageId });
     } catch (e) {

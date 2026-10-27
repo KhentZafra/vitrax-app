@@ -1,21 +1,26 @@
+import '../widgets/route_end_marker.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../widgets/route_nav_icon.dart';
+import '../widgets/track_arrow_icon.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
-import 'package:skeletonizer/skeletonizer.dart';
+import '../widgets/skeleton_views.dart';
 
 import '../config/hazard_cluster_config.dart';
 import '../models/activity.dart';
 import '../models/hazard_cluster.dart';
 import '../models/hazard_report.dart';
 import '../models/shared_route.dart';
+import '../services/activity_preference.dart';
 import '../services/community_impact_service.dart';
+import '../widgets/preferred_highlight.dart';
 import '../services/hazard_service.dart';
 import '../services/route_service.dart';
-import '../widgets/route_nav_icon.dart';
+import '../widgets/app_bottom_nav.dart';
 import '../widgets/user_avatar.dart';
-import 'placeholder_screen.dart';
 import 'community_feed_screen.dart';
 import 'profile_screen.dart';
 import 'record_screen.dart';
@@ -32,9 +37,14 @@ class RoutesScreen extends StatefulWidget {
 }
 
 class _RoutesScreenState extends State<RoutesScreen> {
-  List<SharedRoute> _routes = [];
-  bool _isLoading = true;
+  // Remembered between visits so coming back to Routes shows instantly.
+  static List<SharedRoute>? _cachedRoutes;
+  static ActivityPreference? _cachedPref;
+
+  List<SharedRoute> _routes = _cachedRoutes ?? [];
+  bool _isLoading = _cachedRoutes == null;
   RouteSafetyTier? _filterTier; // null = All
+  ActivityPreference _pref = _cachedPref ?? ActivityPreference.none;
   // null = All areas. Built from whatever place names actually show up
   // in the currently-loaded routes (see _availableLocations) rather than
   // a hardcoded Bohol town list, so it never goes stale and never shows
@@ -48,11 +58,15 @@ class _RoutesScreenState extends State<RoutesScreen> {
   }
 
   Future<void> _load() async {
-    setState(() => _isLoading = true);
+    if (_cachedRoutes == null) setState(() => _isLoading = true);
     final routes = await RouteService.fetchSharedRoutes();
+    final pref = await ActivityPreference.load();
+    _cachedRoutes = routes;
+    _cachedPref = pref;
     if (!mounted) return;
     setState(() {
       _routes = routes;
+      _pref = pref;
       // A location picked before this refresh might no longer exist in
       // the new results (nobody's shared from there anymore) — falling
       // back to "All areas" instead of silently showing an empty list
@@ -79,7 +93,14 @@ class _RoutesScreenState extends State<RoutesScreen> {
       if (_filterTier != null && r.safetyTier != _filterTier) return false;
       if (_filterLocation != null && r.activity.location != _filterLocation) return false;
       return true;
-    }).toList();
+    }).toList()
+      // Routes that match what the user said they do (cyclist / runner /
+      // both) come first; the sort keeps the original order otherwise.
+      ..sort((a, b) {
+        final am = _pref.matchesType(a.activity.type) ? 0 : 1;
+        final bm = _pref.matchesType(b.activity.type) ? 0 : 1;
+        return am.compareTo(bm);
+      });
   }
 
   Widget _buildTierFilterRow() {
@@ -192,9 +213,11 @@ class _RoutesScreenState extends State<RoutesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xff050505),
+      extendBody: true, // content shows behind the floating nav bar
       bottomNavigationBar: _buildBottomNav(),
       body: SafeArea(
-        child: Skeletonizer(
+        bottom: false,
+        child: DelayedSkeletonizer(
           enabled: _isLoading,
           child: RefreshIndicator(
             onRefresh: _load,
@@ -207,9 +230,9 @@ class _RoutesScreenState extends State<RoutesScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Routes', style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+                        const Text('Routes', style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w800)),
                         const SizedBox(height: 4),
-                        Text('Shared by the community', style: TextStyle(color: Colors.grey.shade500, fontSize: 14)),
+                        Text('Discover, track, and share your journey.', style: TextStyle(color: Colors.grey.shade500, fontSize: 14)),
                         const SizedBox(height: 18),
                         _buildTierFilterRow(),
                         const SizedBox(height: 12),
@@ -217,13 +240,25 @@ class _RoutesScreenState extends State<RoutesScreen> {
                           width: double.infinity,
                           child: OutlinedButton.icon(
                             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PlanRouteScreen(activityType: ActivityType.run))),
-                            icon: const Icon(Icons.alt_route, color: Colors.blueAccent),
-                            label: const Text('Plan a Route', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.w600)),
-                            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12), side: const BorderSide(color: Colors.blueAccent)),
+                            icon: const TrackArrowIcon(size: 20, color: Colors.blueAccent),
+                            label: const Text('Plan a Route', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.w700, fontSize: 16)),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              backgroundColor: const Color(0xff07111f),
+                              side: const BorderSide(color: Colors.blueAccent, width: 1.6),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+                            ),
                           ),
                         ),
                         _buildLocationFilter(),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            const Expanded(child: Text('Popular Routes', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800))),
+                            Text('${_visibleRoutes.length} routes', style: const TextStyle(color: Colors.blueAccent, fontSize: 13, fontWeight: FontWeight.w700)),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
                       ],
                     ),
                   ),
@@ -235,20 +270,21 @@ class _RoutesScreenState extends State<RoutesScreen> {
                   )
                 else
                   SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 120),
                     sliver: SliverList.separated(
                       itemCount: _isLoading ? 3 : _visibleRoutes.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 16),
+                      separatorBuilder: (_, _) => const SizedBox(height: 16),
                       itemBuilder: (context, index) {
                         if (_isLoading) return const _RouteCardSkeleton();
                         final route = _visibleRoutes[index];
-                        return _RouteCard(
+                        final card = _RouteCard(
                           route: route,
                           onTap: () => Navigator.push(
                             context,
                             MaterialPageRoute(builder: (_) => RouteDetailScreen(route: route)),
                           ),
                         );
+                        return _pref.matchesType(route.activity.type) ? PreferredHighlight(child: card) : card;
                       },
                     ),
                   ),
@@ -284,86 +320,10 @@ class _RoutesScreenState extends State<RoutesScreen> {
     }
   }
 
-  Widget _buildBottomNav() {
-    return Container(
-      height: 90,
-      padding: const EdgeInsets.only(top: 6),
-      decoration: const BoxDecoration(color: Colors.black, border: Border(top: BorderSide(color: Colors.white10))),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _NavTab(icon: Icons.home_rounded, label: 'Home', selected: false, onTap: () => _navigateFromNav(0)),
-          _NavTab(customIcon: (color) => RouteNavIcon(color: color), label: 'Routes', selected: true, onTap: () => _navigateFromNav(1)),
-          _RecordNavTab(onTap: () => _navigateFromNav(2)),
-          _NavTab(icon: Icons.chat_bubble_outline, label: 'Community', selected: false, onTap: () => _navigateFromNav(3)),
-          _NavTab(icon: Icons.person_outline, label: 'You', selected: false, onTap: () => _navigateFromNav(4)),
-        ],
-      ),
-    );
-  }
+  Widget _buildBottomNav() => AppBottomNav(selectedIndex: 1, onTap: _navigateFromNav);
 }
 
-class _NavTab extends StatelessWidget {
-  final IconData? icon;
-  final Widget Function(Color color)? customIcon;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
 
-  const _NavTab({this.icon, this.customIcon, required this.label, required this.selected, required this.onTap})
-      : assert(icon != null || customIcon != null);
-
-  @override
-  Widget build(BuildContext context) {
-    final color = selected ? Colors.blueAccent : Colors.grey;
-    return InkWell(
-      onTap: onTap,
-      child: SizedBox(
-        width: 68,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            customIcon != null ? customIcon!(color) : Icon(icon, color: color, size: 24),
-            const SizedBox(height: 4),
-            Text(label, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: color, fontSize: 11)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RecordNavTab extends StatelessWidget {
-  final VoidCallback onTap;
-  const _RecordNavTab({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      customBorder: const CircleBorder(),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Transform.translate(
-            offset: const Offset(0, -6),
-            child: Container(
-              width: 58,
-              height: 58,
-              decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.blueAccent),
-              // Nudged 2px right so the triangle's visual center (its
-              // bulk sits left of its bounding box) lines up with the
-              // circle's actual center instead of looking off-balance.
-              child: const Center(child: Padding(padding: EdgeInsets.only(left: 2), child: Icon(Icons.play_arrow_rounded, color: Colors.white, size: 30))),
-            ),
-          ),
-          const Text('Record', style: TextStyle(color: Colors.grey, fontSize: 11)),
-        ],
-      ),
-    );
-  }
-}
 
 /// Bottom sheet for choosing an area to filter shared routes by, plus a
 /// live search box for when the community's shared enough routes that
@@ -475,7 +435,7 @@ class _EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.route, color: Colors.grey.shade700, size: 40),
+            RouteNavIcon(color: Colors.grey.shade700, size: 40),
             const SizedBox(height: 12),
             Text(
               filtered ? 'No routes match your filters' : 'No routes shared yet',
@@ -526,15 +486,16 @@ class _RouteCard extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(24),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(24),
         child: Container(
           decoration: BoxDecoration(
-            color: const Color(0xff141414),
-            border: Border(left: BorderSide(color: tier.color, width: 4)),
+            color: const Color(0xff0c1118),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.white12, width: 1.2),
           ),
-          padding: const EdgeInsets.fromLTRB(12, 16, 16, 16),
+          padding: const EdgeInsets.fromLTRB(14, 16, 16, 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -542,10 +503,10 @@ class _RouteCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(18),
                     child: SizedBox(
-                      width: 92,
-                      height: 92,
+                      width: 100,
+                      height: 100,
                       child: _RouteSketch(points: a.route),
                     ),
                   ),
@@ -599,8 +560,9 @@ class _RouteCard extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                     decoration: BoxDecoration(
-                      color: tier.color.withValues(alpha: .18),
+                      color: tier.color.withValues(alpha: .12),
                       borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: tier.color.withValues(alpha: .8), width: 1.2),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -654,18 +616,91 @@ class _RouteCard extends StatelessWidget {
                   UserAvatar(avatarUrl: route.sharerAvatarUrl, radius: 13, iconColor: Colors.grey.shade400),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(
-                      'Shared by ${route.sharerName}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Shared by ${route.sharerName}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+                        ),
+                        if (route.sharedWhenLabel.isNotEmpty)
+                          Text(
+                            route.sharedWhenLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(color: Colors.grey.shade600, fontSize: 11.5),
+                          ),
+                      ],
                     ),
                   ),
+                  _RouteLikeButton(route: route),
                   Icon(Icons.more_vert, color: Colors.grey.shade600, size: 18),
                 ],
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Heart + like count on a shared route card. You can't like your own route.
+class _RouteLikeButton extends StatefulWidget {
+  final SharedRoute route;
+  const _RouteLikeButton({required this.route});
+
+  @override
+  State<_RouteLikeButton> createState() => _RouteLikeButtonState();
+}
+
+class _RouteLikeButtonState extends State<_RouteLikeButton> {
+  bool _busy = false;
+
+  Future<void> _toggle() async {
+    final r = widget.route;
+    final id = r.activity.id;
+    if (id == null || _busy) return;
+    final like = !r.likedByMe;
+    setState(() {
+      _busy = true;
+      r.likedByMe = like;
+      r.likeCount += like ? 1 : -1;
+    });
+    final ok = await RouteService.setLike(id, like: like);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      if (!ok) {
+        r.likedByMe = !like;
+        r.likeCount += like ? -1 : 1;
+      }
+    });
+    if (!ok) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't update your like, Please try again.")));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final r = widget.route;
+    final mine = r.activity.userId == Supabase.instance.client.auth.currentUser?.id;
+    final liked = r.likedByMe;
+    return InkWell(
+      onTap: mine ? null : _toggle,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(liked ? Icons.favorite : Icons.favorite_border, size: 18, color: liked ? Colors.redAccent : Colors.grey.shade500),
+            const SizedBox(width: 4),
+            Text('${r.likeCount}', style: TextStyle(color: Colors.grey.shade400, fontSize: 13, fontWeight: FontWeight.w600)),
+          ],
         ),
       ),
     );
@@ -688,7 +723,7 @@ class _CardStat extends StatelessWidget {
       children: [
         Row(
           children: [
-            Icon(icon, color: iconColor, size: 14),
+            AppIcon(icon, color: iconColor, size: 14),
             const SizedBox(width: 5),
             Flexible(
               child: Text(
@@ -917,13 +952,13 @@ class _RouteDetailScreenState extends State<RouteDetailScreen> {
                         point: points.last,
                         width: 34,
                         height: 34,
-                        child: const _RouteEndMarker(isStart: false),
+                        child: RouteEndMarker(isStart: false, type: a.type),
                       ),
                       Marker(
                         point: points.first,
                         width: 34,
                         height: 34,
-                        child: const _RouteEndMarker(isStart: true),
+                        child: RouteEndMarker(isStart: true, type: a.type),
                       ),
                     ],
                   ),
@@ -977,7 +1012,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen> {
                 children: [
                   Row(
                     children: [
-                      Expanded(child: Text('Shared by ${route.sharerName}', style: TextStyle(color: Colors.grey.shade400, fontSize: 14))),
+                      Expanded(
+                        child: Text(
+                          route.sharedWhenLabel.isEmpty ? 'Shared by ${route.sharerName}' : 'Shared by ${route.sharerName} · ${route.sharedWhenLabel}',
+                          style: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+                        ),
+                      ),
                       _TierPill(tier: route.safetyTier),
                     ],
                   ),
@@ -1010,6 +1050,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen> {
                             activityType: a.type,
                             subtype: a.subtype ?? a.title,
                             referenceRoute: a.route,
+                            referenceRouteId: a.id,
                             referenceRouteLabel: '${route.sharerName}\'s ${a.title}',
                           ),
                         ),
@@ -1058,7 +1099,7 @@ class _TrackRouteCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(color: Colors.blue.withValues(alpha: .18), borderRadius: BorderRadius.circular(12)),
-              child: const Icon(Icons.near_me_rounded, color: Colors.blue, size: 20),
+              child: const TrackArrowIcon(color: Colors.blue, size: 20),
             ),
             const SizedBox(width: 14),
             const Expanded(
@@ -1268,7 +1309,7 @@ class _ClusterDetailSheetState extends State<_ClusterDetailSheet> {
               child: ListView.separated(
                 shrinkWrap: true,
                 itemCount: _sortedReports.length,
-                separatorBuilder: (_, __) => Divider(color: Colors.white10, height: 20),
+                separatorBuilder: (_, _) => Divider(color: Colors.white10, height: 20),
                 itemBuilder: (context, index) {
                   final r = _sortedReports[index];
                   final clearStatus = r.id != null ? _clearStatus[r.id] : null;
@@ -1351,50 +1392,6 @@ class _ClusterDetailSheetState extends State<_ClusterDetailSheet> {
 /// a route, with a small label so it is obvious which end is which. The
 /// Start label sits above and the Finish label below, so they do not cover
 /// each other on loop routes where both ends are at the same place.
-class _RouteEndMarker extends StatelessWidget {
-  final bool isStart;
-  const _RouteEndMarker({required this.isStart});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = isStart ? const Color(0xff2ECC71) : const Color(0xff3D7DFF);
-    final label = isStart ? 'Start' : 'Finish';
-    return Stack(
-      clipBehavior: Clip.none,
-      alignment: Alignment.center,
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: color,
-            border: Border.all(color: Colors.white, width: 2.5),
-            boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 4)],
-          ),
-          child: Center(
-            child: Icon(isStart ? Icons.play_arrow_rounded : Icons.flag_rounded, color: Colors.white, size: 18),
-          ),
-        ),
-        Positioned(
-          left: -22,
-          right: -22,
-          top: isStart ? -22 : 36,
-          child: Center(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: .82),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: color, width: 1),
-              ),
-              child: Text(label, style: const TextStyle(color: Colors.white, fontSize: 10.5, fontWeight: FontWeight.w700)),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _StartFinishLegend extends StatelessWidget {
   const _StartFinishLegend();
 
@@ -1422,9 +1419,15 @@ class _StartFinishLegend extends StatelessWidget {
         children: [
           item(const Color(0xff2ECC71), Icons.play_arrow_rounded, 'Start'),
           const SizedBox(height: 4),
-          item(const Color(0xff3D7DFF), Icons.flag_rounded, 'Finish'),
+          item(const Color(0xffE53935), Icons.flag_rounded, 'Finish'),
         ],
       ),
     );
   }
+}
+
+/// Forget remembered Routes data (called on sign-out).
+void clearRoutesCache() {
+  _RoutesScreenState._cachedRoutes = null;
+  _RoutesScreenState._cachedPref = null;
 }

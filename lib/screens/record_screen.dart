@@ -1,3 +1,7 @@
+import '../widgets/map_pin_marker.dart';
+import '../widgets/route_end_marker.dart';
+import '../widgets/track_arrow_icon.dart';
+import '../services/offline_hazard_queue.dart';
 import 'dart:async';
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
@@ -18,7 +22,6 @@ import '../services/community_impact_service.dart';
 import '../services/notification_service.dart';
 import '../services/tts_service.dart';
 import '../services/voice_command_service.dart';
-import '../widgets/map_pin_marker.dart';
 import '../widgets/report_hazard_sheet.dart';
 import 'create_challenge_screen.dart';
 
@@ -43,6 +46,8 @@ class RecordScreen extends StatefulWidget {
   // whose route it is for the "Retracing ..." banner. Both null for a
   // normal, non-retracing recording (the overwhelmingly common case).
   final List<GpsPoint>? referenceRoute;
+  // The shared route's activity id when retracing one, so its owner is notified.
+  final String? referenceRouteId;
   final String? referenceRouteLabel;
 
   // Trail color for the reference line above — green for a Safest
@@ -57,6 +62,7 @@ class RecordScreen extends StatefulWidget {
     required this.activityType,
     required this.subtype,
     this.referenceRoute,
+    this.referenceRouteId,
     this.referenceRouteLabel,
     this.referenceRouteColor,
   });
@@ -109,6 +115,8 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
 
   // Hazards *this session* reported (not yet necessarily shared).
   final List<HazardReport> _hazards = [];
+  // Hazards that could not be uploaded (no internet): hazard -> its saved-on-phone key.
+  final Map<HazardReport, String> _queuedHazardKey = {};
   HazardReport? _pendingUndo;
   int _undoSecondsLeft = 0;
 
@@ -137,7 +145,6 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
   LatLng? _areaCenter;
   int _areaQuestionsLeft = _maxQuestionsPerArea;
   bool _areaSummarized = false;
-  DateTime? _lastInsideNoticeAt;
   int _zoneTotal = 0;
   int _zoneDone = 0;
   DateTime? _zoneLastAnswerAt;
@@ -218,13 +225,24 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
   //      as a safety net. If movement resumes at any point, the check
   //      resets / the dialog auto-dismisses.
   // ---------------------------------------------------------------------
-  static const double _startThresholdKmh = 2.5;
-  static const Duration _startSustainDuration = Duration(seconds: 6);
+  static const double _startThresholdKmh = 2.0;
+  static const Duration _startSustainDuration = Duration(seconds: 3);
   static const double _stillThresholdKmh = 1.5;
   static const Duration _checkInAfter = Duration(seconds: 90);
   static const int _autoStopAfterSeconds = 60;
 
   StreamSubscription<Position>? _preStartMotionSub;
+  // If the phone has been moving fast enough for 10 s and recording still did
+  // not start by itself, remind the user to tap the start button.
+  static const Duration _startHintAfter = Duration(seconds: 10);
+  Timer? _startHintTimer;
+  bool _showStartHint = false;
+
+  void _clearStartHint() {
+    _startHintTimer?.cancel();
+    _startHintTimer = null;
+    if (_showStartHint && mounted) setState(() => _showStartHint = false);
+  }
   DateTime? _movingSince; // pre-start: how long sustained movement has lasted
   DateTime?
   _belowThresholdSince; // pre-start: how long speed has been under threshold, for the reset grace period below
@@ -232,8 +250,6 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
   DateTime?
   _stillSince; // during recording: how long sustained stillness has lasted
   bool _checkInDialogOpen = false;
-  String?
-  _pendingStopReason; // set when the user actively confirms they're stopping
   BuildContext? _checkInDialogContext;
   Timer? _autoStopTimer;
   final ValueNotifier<int> _autoStopSecondsLeft = ValueNotifier<int>(
@@ -278,6 +294,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     WidgetsBinding.instance.removeObserver(this);
     _positionSub?.cancel();
     _preStartMotionSub?.cancel();
+    _startHintTimer?.cancel();
     _ticker?.cancel();
     _undoTimer?.cancel();
     _gpsWatchdog?.cancel();
@@ -563,6 +580,9 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
           if (speedKmh >= _startThresholdKmh) {
             _belowThresholdSince = null;
             _movingSince ??= DateTime.now();
+            _startHintTimer ??= Timer(_startHintAfter, () {
+              if (mounted && !_isRecording && !_isStarting) setState(() => _showStartHint = true);
+            });
             if (DateTime.now().difference(_movingSince!) >=
                 _startSustainDuration) {
               _start();
@@ -578,6 +598,10 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
             if (DateTime.now().difference(_belowThresholdSince!) >=
                 const Duration(milliseconds: 700)) {
               _movingSince = null;
+            }
+            // Really stopped for a while: no reminder needed.
+            if (DateTime.now().difference(_belowThresholdSince!) >= const Duration(seconds: 5)) {
+              _clearStartHint();
             }
           }
         });
@@ -595,6 +619,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     // second call immediately.
     if (_isRecording || _isStarting) return;
     _isStarting = true;
+    _clearStartHint();
     _preStartMotionSub?.cancel();
     _movingSince = null;
     _belowThresholdSince = null;
@@ -638,6 +663,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
         ..add(startLatLng);
       _route.clear();
       _hazards.clear();
+      _queuedHazardKey.clear();
       _communityClusters = [];
     });
     _isStarting = false;
@@ -743,7 +769,12 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     _positionSub?.cancel();
     _positionSub = Geolocator.getPositionStream(locationSettings: settings)
         .listen((pos) {
-          const maxAcceptableAccuracyMeters = 20.0;
+          // Normally only accurate fixes (20 m or better) are used. If good
+          // fixes have been missing for 15+ seconds (weak signal, no internet
+          // to help the GPS), accept up to 40 m so the route does not turn
+          // into a few long straight lines.
+          final sinceGood = _lastGoodFixAt == null ? null : DateTime.now().difference(_lastGoodFixAt!);
+          final maxAcceptableAccuracyMeters = (sinceGood != null && sinceGood.inSeconds > 15) ? 40.0 : 20.0;
           _gpsAccuracy = pos.accuracy;
           _lastFixAt = DateTime.now();
           if (pos.accuracy > maxAcceptableAccuracyMeters) return;
@@ -754,7 +785,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
             GpsPoint(
               lat: pos.latitude,
               lng: pos.longitude,
-              timestamp: DateTime.now(),
+              timestamp: pos.timestamp,
             ),
           );
 
@@ -781,10 +812,11 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
             // Milliseconds, not whole seconds — fixes can arrive faster than
             // once a second, and truncating to inSeconds could floor a
             // sub-second gap to 0 and skip the speed calc entirely.
+            // The time the satellite fix was taken, not when the app got it:
+            // after a signal gap fixes can arrive in a batch, which used to
+            // make speeds look wrong.
             final secondsSinceLast =
-                DateTime.now()
-                    .difference(_lastFixTime ?? DateTime.now())
-                    .inMilliseconds /
+                pos.timestamp.difference(_lastPosition!.timestamp).inMilliseconds /
                 1000;
             final impliedSpeedKmh = secondsSinceLast > 0
                 ? (segment / secondsSinceLast) * 3.6
@@ -893,10 +925,12 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
   /// tap the pin themselves). Only one prompt is ever shown at a time,
   /// and each hazard is only prompted once per recording session.
   void _checkHazardProximity(LatLng current) {
-    if (_proximityPrompt != null)
+    if (_proximityPrompt != null) {
       return; // a prompt is already up — don't stack another
-    if (_pendingUndo != null)
+    }
+    if (_pendingUndo != null) {
       return; // don't collide with the just-reported-hazard banner
+    }
 
     _maybeReloadHazards(current);
 
@@ -995,16 +1029,24 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
         // quiet, and do not follow it with an early-warning notification.
         _sessionWarnedHazardKeys.add(_clusterKey(cluster));
         // Tell the rider they are inside the area (statement only, no
-        // question), once per hazard per recording.
-        if (_sessionInsideAnnouncedKeys.add(_clusterKey(cluster))) {
-          final now = DateTime.now();
-          final quietly = crowded || (_lastInsideNoticeAt != null && now.difference(_lastInsideNoticeAt!) < const Duration(seconds: 45));
-          if (quietly) continue; // crowded areas get one summary; others at most one notice per 45 s
-          _lastInsideNoticeAt = now;
+        // question), once per hazard per recording. If another message is
+        // still being spoken, wait for the next fix instead of losing it.
+        final insideKey = _clusterKey(cluster);
+        if (!_sessionInsideAnnouncedKeys.contains(insideKey)) {
+          if (crowded) {
+            _sessionInsideAnnouncedKeys.add(insideKey); // crowded areas get one summary instead
+            continue;
+          }
+          if (TtsService.isBusy) continue; // try again on the next fix
+          _sessionInsideAnnouncedKeys.add(insideKey);
           final label = cluster.type.label.toLowerCase();
-          _showSnack('You are inside a reported $label area. Ride carefully.');
+          final starting = _elapsed.inSeconds < 20;
+          final text = starting
+              ? 'You are starting inside a reported $label area. Ride carefully.'
+              : 'You are inside a reported $label area. Ride carefully.';
+          _showSnack(text);
           NotificationService.showInsideHazard(label);
-          TtsService.speak('You are inside a reported $label area. Ride carefully.');
+          TtsService.speak(text, important: true);
           return;
         }
         continue;
@@ -1101,6 +1143,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     final now = DateTime.now();
     final last = _lastAwarenessAt;
     if (last != null && now.difference(last) < _awarenessCooldown) return;
+    if (TtsService.isBusy) return; // keep it for the next fix rather than losing it
 
     HazardCluster? best;
     double bestDistance = double.infinity;
@@ -1199,12 +1242,62 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     }
 
     if (!success) {
-      TtsService.speak("Sorry, that couldn't be recorded. You may be the original reporter, or already confirmed this one.", important: true);
       _showSnack("Couldn't record that, You may be the original reporter, or already confirmed this one.");
     } else {
-      TtsService.speak('Thank you for confirming. Your confirmation is greatly appreciated.', important: true);
       _showSnack(stillHere ? 'Thanks!, This helps keep reports trustworthy.' : 'Thanks for helping keep the map accurate.');
     }
+    // Thank the rider, then immediately move on to any other hazard nearby
+    // (e.g. a different type 20 m away) so it is never skipped just because
+    // the rider rode past its small radius while answering this one.
+    TtsService.speakThen(
+      success ? 'Thank you for confirming.' : "Sorry, that couldn't be recorded. You may be the original reporter.",
+      _followUpNextHazard,
+    );
+  }
+
+  /// After a hazard question is answered: asks about the next unhandled
+  /// hazard within [_followUpMeters] of the rider, nearest first, with a
+  /// spoken + on-screen announcement. Called repeatedly via the answer flow.
+  static const _followUpMeters = 120.0;
+  void _followUpNextHazard() {
+    if (!mounted || _proximityPrompt != null || _pendingUndo != null) return;
+    final here = _currentLatLng;
+    if (here == null) return;
+    HazardReport? next;
+    HazardCluster? nextCluster;
+    var nextDist = double.infinity;
+    for (final c in _communityClusters) {
+      if (_clusterFullyHandled(c)) continue;
+      final d = Geolocator.distanceBetween(here.latitude, here.longitude, c.center.latitude, c.center.longitude);
+      if (d > _followUpMeters || d >= nextDist) continue;
+      for (final r in c.reports) {
+        if (r.id != null && !_handledHazardIds.contains(r.id) && !_sessionPromptedHazardIds.contains(r.id)) {
+          next = r;
+          nextCluster = c;
+          nextDist = d;
+          break;
+        }
+      }
+    }
+    if (next == null || nextCluster == null) return;
+    final label = next.type.label.toLowerCase();
+    final meters = (nextDist / 10).round() * 10;
+    final distText = meters < 10 ? 'right here' : '$meters meters away';
+    setState(() {
+      _sessionPromptedHazardIds.add(next!.id!);
+      _sessionWarnedHazardKeys.add(_clusterKey(nextCluster!));
+      _sessionInsideAnnouncedKeys.add(_clusterKey(nextCluster));
+      _proximityPrompt = next;
+    });
+    _showSnack('Another hazard nearby: $label, $distText.');
+    NotificationService.showHazardNearby(label);
+    TtsService.speakThen(
+      'Another hazard nearby: $label, $distText. Is it still there? Say yes or no.',
+      () => VoiceCommandService.listenForYesNo(
+        onYes: () => _respondToProximityPrompt(stillHere: true),
+        onNo: () => _respondToProximityPrompt(stillHere: false),
+      ),
+    );
   }
 
   /// Individual unconfirmed reports around the rider (within [_areaCountMeters]),
@@ -1413,7 +1506,6 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
         // the recording, so the stop reason is captured.
         final reason = await _showStopReasonDialog();
         if (!mounted) return;
-        _pendingStopReason = reason;
         if (reason != null) _showSnack('Stopping — $reason');
         await _stopAndSave();
       }
@@ -1475,10 +1567,13 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
         if (index != -1) _hazards[index] = saved;
         if (_pendingUndo == report) _pendingUndo = saved;
       });
+    } else if (HazardService.lastReportRateLimited) {
+      _showSnack('Report limit reached. You can send up to 10 hazard reports an hour. Try again later.');
     } else {
-      _showSnack(HazardService.lastReportRateLimited
-          ? 'Report limit reached. You can send up to 10 hazard reports an hour. Try again later.'
-          : 'Hazard shown on your map, but could not be saved online.');
+      // No internet: keep it on the phone and upload it later.
+      final key = await OfflineHazardQueue.enqueueUnsent(report);
+      _queuedHazardKey[report] = key;
+      _showSnack('No internet: your hazard report is saved on your phone and will be shared when you are back online.');
     }
   }
 
@@ -1493,6 +1588,8 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     if (toRemove.id != null) {
       HazardService.delete(toRemove.id!);
     }
+    final queued = _queuedHazardKey.remove(toRemove);
+    if (queued != null) OfflineHazardQueue.remove(queued);
   }
 
   Future<void> _stopAndSave() async {
@@ -1500,8 +1597,13 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     _gpsWatchdog?.cancel();
     _ticker?.cancel();
 
-    if (_distanceMeters <= 0 && _elapsed.inSeconds < 5) {
-      if (mounted) _resetToPreStart();
+    // Nothing was recorded (0 distance, so 0 speed and 0 average speed):
+    // do not save it as an activity, however long the timer ran.
+    if (_distanceMeters / 1000 < ActivityProvider.minSavableDistanceKm) {
+      if (mounted) {
+        _resetToPreStart();
+        _showSnack('No distance or speed was recorded, so this activity was not saved.');
+      }
       return;
     }
 
@@ -1515,6 +1617,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
       duration: _elapsed,
       startedAt: _startedAt ?? DateTime.now(),
       route: _route,
+      retracedFrom: widget.referenceRouteId,
     );
 
     if (!mounted) return;
@@ -1524,6 +1627,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
       // completion modal can still show the route and offer to share
       // this session's hazard reports.
       final routeSnapshot = List<LatLng>.from(_routePoints);
+      final queuedKeys = _hazards.map((h) => _queuedHazardKey[h]).whereType<String>().toList();
       final hazardIdsSnapshot = _hazards
           .where((h) => h.id != null)
           .map((h) => h.id!)
@@ -1552,10 +1656,24 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
       // riders and runners, so they should not depend on sharing the
       // track. (The rows already exist, so this works even for an
       // activity that is still waiting to sync.)
+      var shareOk = true;
       if (hazardIdsSnapshot.isNotEmpty) {
-        await HazardService.shareHazards(hazardIdsSnapshot);
+        shareOk = await HazardService.shareHazards(hazardIdsSnapshot);
         if (!mounted) return;
       }
+
+      // Anything that could not be linked or shared (no internet, or the
+      // activity is still waiting to sync) is remembered on the phone and
+      // finished automatically later, so no hazard report is lost.
+      if (saved.pendingSync || !shareOk) {
+        for (final id in hazardIdsSnapshot) {
+          await OfflineHazardQueue.enqueueUploaded(id, activityRef: saved.id, shared: shareOk);
+        }
+      }
+      if (queuedKeys.isNotEmpty) {
+        await OfflineHazardQueue.setActivity(queuedKeys, saved.id!);
+      }
+      OfflineHazardQueue.flush(); // upload now if the internet is back
 
       setState(() => _isSaving = false);
 
@@ -1569,7 +1687,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
       }
 
       _resetToPreStart();
-      _showCompletionModal(saved, routeSnapshot, hazardIdsSnapshot);
+      _showCompletionModal(saved, routeSnapshot, [...hazardIdsSnapshot, ...queuedKeys]);
     } else {
       setState(() => _isSaving = false);
       _showSnack(provider.errorMessage ?? 'Unable to save activity.');
@@ -1583,7 +1701,11 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     _checkInDialogOpen = false;
     _checkInDialogContext = null;
 
+    _startHintTimer?.cancel();
+    _startHintTimer = null;
+    _movingSince = null;
     setState(() {
+      _showStartHint = false;
       _isRecording = false;
       _isLocked = false;
       _isPaused = false;
@@ -1595,6 +1717,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
       _routePoints.clear();
       _route.clear();
       _hazards.clear();
+      _queuedHazardKey.clear();
       _pendingUndo = null;
       _communityClusters = [];
       _sessionPromptedHazardIds.clear();
@@ -1714,8 +1837,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        Icons.near_me,
+                      TrackArrowIcon(
                         color: _referenceTrailColor,
                         size: 14,
                       ),
@@ -1746,7 +1868,8 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
                     padding: const EdgeInsets.all(28),
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: Colors.blue.withValues(alpha: .08),
+                      color: Colors.blue.withValues(alpha: _showStartHint ? .22 : .08),
+                      border: _showStartHint ? Border.all(color: Colors.amber, width: 2) : null,
                     ),
                     child: Icon(
                       _isCycling ? Icons.pedal_bike : Icons.directions_run,
@@ -1779,7 +1902,31 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
                     ),
                   ],
                 ),
-                const SizedBox(height: 115),
+                if (_showStartHint) ...[
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withValues(alpha: .12),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.amber.withValues(alpha: .6)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.touch_app, color: Colors.amber, size: 20),
+                        const SizedBox(width: 10),
+                        Flexible(
+                          child: Text(
+                            "Automatic start didn't begin. Tap the button above to start recording.",
+                            style: TextStyle(color: Colors.amber.shade200, fontSize: 13, height: 1.35),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                SizedBox(height: _showStartHint ? 60 : 115),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
@@ -1823,6 +1970,10 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     final avgSpeed = _elapsed.inSeconds > 0
         ? km / (_elapsed.inSeconds / 3600)
         : 0.0;
+    // In the first seconds GPS wobble adds a little distance over a tiny
+    // time, which made the average look like 40+ km/h. Wait for a steadier
+    // sample before showing it.
+    final avgReady = _elapsed.inSeconds >= 30 && _distanceMeters >= 50;
     final current = _routePoints.isNotEmpty
         ? _routePoints.last
         : const LatLng(0, 0);
@@ -1864,24 +2015,9 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
                   if (_isRetracing)
                     MarkerLayer(
                       markers: [
-                        Marker(
-                          point: _referenceLatLngs.first,
-                          width: 22,
-                          height: 22,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: _referenceTrailColor,
-                              border: Border.all(color: Colors.white, width: 2),
-                            ),
-                          ),
-                        ),
-                        Marker(
-                          point: _referenceLatLngs.last,
-                          width: 36,
-                          height: 36,
-                          alignment: Alignment.bottomCenter,
-                          child: const MapPinMarker(size: 36),
+                        ...RouteEndMarker.markers(
+                          [_referenceLatLngs.first, _referenceLatLngs.last],
+                          widget.activityType,
                         ),
                       ],
                     ),
@@ -2008,159 +2144,153 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
                   ),
                 ],
               ),
+              // Top overlay: one row, so nothing can overlap on phones with a
+              // large font or display size. Left column (LIVE pill, route and
+              // GPS notices) takes the free width; the stats panel sits right.
               Positioned(
-                top: 12,
+                top: 10,
                 left: 16,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: .7),
-                    borderRadius: BorderRadius.circular(24),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.circle, color: Colors.red, size: 10),
-                      const SizedBox(width: 6),
-                      const Text(
-                        'LIVE',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                        ),
-                      ),
-                      if (_gpsAccuracy != null) ...[
-                        const SizedBox(width: 8),
-                        Text(
-                          'GPS ±${_gpsAccuracy!.round()} m',
-                          style: TextStyle(
-                            color: _gpsAccuracy! <= 20 ? Colors.greenAccent : Colors.orangeAccent,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              if (_gpsWarning != null)
-                Positioned(
-                  top: 60,
-                  left: 16,
-                  right: 182,
-                  child: GestureDetector(
-                    onTap: _gpsWarningAction,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.red.shade800.withValues(alpha: .92),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
+                right: 16,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.gps_off, color: Colors.white, size: 16),
-                          const SizedBox(width: 8),
-                          Expanded(child: Text(_gpsWarning!, style: const TextStyle(color: Colors.white, fontSize: 12))),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: .7),
+                              borderRadius: BorderRadius.circular(24),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.circle, color: Colors.red, size: 10),
+                                const SizedBox(width: 6),
+                                const Text(
+                                  'LIVE',
+                                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                ),
+                                if (_gpsAccuracy != null) ...[
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: Text(
+                                      'GPS ±${_gpsAccuracy!.round()} m',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: _gpsAccuracy! <= 20 ? Colors.greenAccent : Colors.orangeAccent,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          if (_isRetracing) ...[
+                            const SizedBox(height: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: .7),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                'Retracing ${widget.referenceRouteLabel ?? "a shared route"}',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: _referenceTrailColor,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                          if (_gpsWarning != null) ...[
+                            const SizedBox(height: 6),
+                            GestureDetector(
+                              onTap: _gpsWarningAction,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: Colors.red.shade800.withValues(alpha: .92),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Padding(
+                                      padding: EdgeInsets.only(top: 1),
+                                      child: Icon(Icons.gps_off, color: Colors.white, size: 16),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        _gpsWarning!,
+                                        style: const TextStyle(color: Colors.white, fontSize: 12, height: 1.25),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
-                  ),
-                ),
-              const Positioned(
-                top: 14,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: Text(
-                    'GPS Tracking',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-              if (_isRetracing)
-                Positioned(
-                  top: 46,
-                  left: 60,
-                  right: 60,
-                  child: Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: .7),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        'Retracing ${widget.referenceRouteLabel ?? "a shared route"}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: _referenceTrailColor,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
+                    const SizedBox(width: 10),
+                    SizedBox(
+                      width: (MediaQuery.sizeOf(context).width * 0.42).clamp(128.0, 160.0).toDouble(),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: .8),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _StatRow(
+                              icon: Icons.map_outlined,
+                              iconColor: Colors.blue,
+                              value: km.toStringAsFixed(2),
+                              unit: 'km',
+                              label: 'DISTANCE',
+                            ),
+                            const Divider(color: Colors.white12, height: 16),
+                            _StatRow(
+                              icon: Icons.access_time,
+                              iconColor: Colors.greenAccent,
+                              value: _formatDuration(_elapsed),
+                              unit: '',
+                              label: 'DURATION',
+                            ),
+                            const Divider(color: Colors.white12, height: 16),
+                            _StatRow(
+                              icon: Icons.speed,
+                              iconColor: Colors.lightBlueAccent,
+                              value: _currentSpeedKmh.toStringAsFixed(1),
+                              unit: 'km/h',
+                              label: 'SPEED',
+                            ),
+                            const Divider(color: Colors.white12, height: 16),
+                            _StatRow(
+                              icon: Icons.bolt,
+                              iconColor: Colors.blue,
+                              value: avgReady ? avgSpeed.toStringAsFixed(1) : '--',
+                              unit: 'km/h',
+                              label: 'AVG. SPEED',
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                  ),
-                ),
-              Positioned(
-                top: 12,
-                right: 16,
-                child: Container(
-                  width: 150,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 12,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: .8),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Column(
-                    children: [
-                      _StatRow(
-                        icon: Icons.map_outlined,
-                        iconColor: Colors.blue,
-                        value: km.toStringAsFixed(2),
-                        unit: 'km',
-                        label: 'DISTANCE',
-                      ),
-                      const Divider(color: Colors.white12, height: 18),
-                      _StatRow(
-                        icon: Icons.access_time,
-                        iconColor: Colors.greenAccent,
-                        value: _formatDuration(_elapsed),
-                        unit: '',
-                        label: 'DURATION',
-                      ),
-                      const Divider(color: Colors.white12, height: 18),
-                      _StatRow(
-                        icon: Icons.speed,
-                        iconColor: Colors.lightBlueAccent,
-                        value: _currentSpeedKmh.toStringAsFixed(1),
-                        unit: 'km/h',
-                        label: 'SPEED',
-                      ),
-                      const Divider(color: Colors.white12, height: 18),
-                      _StatRow(
-                        icon: Icons.bolt,
-                        iconColor: Colors.blue,
-                        value: avgSpeed.toStringAsFixed(1),
-                        unit: 'km/h',
-                        label: 'AVG. SPEED',
-                      ),
-                    ],
-                  ),
+                  ],
                 ),
               ),
               Positioned(
@@ -2497,6 +2627,7 @@ class _CompletionModalState extends State<_CompletionModal> {
   bool _isSharing = false;
   bool _shared = false;
   bool _isRetryingSync = false;
+  String? _syncError; // shown inside the modal when a retry fails
   bool _challengeTapped =
       false; // disables the Create a Challenge button after use
 
@@ -2540,13 +2671,27 @@ class _CompletionModalState extends State<_CompletionModal> {
   }
 
   Future<void> _retrySync() async {
-    setState(() => _isRetryingSync = true);
-    await context.read<ActivityProvider>().syncPending();
+    setState(() {
+      _isRetryingSync = true;
+      _syncError = null;
+    });
+    final provider = context.read<ActivityProvider>();
+    final ok = await provider.syncPending();
     if (!mounted) return;
     setState(() => _isRetryingSync = false);
-    // No need to manually update state beyond this — build() re-resolves
-    // the activity from ActivityProvider on every rebuild, so a
-    // successful sync here surfaces automatically (see build() below).
+
+    if (!ok) {
+      debugPrint('Retry sync failed: ${provider.lastSyncError}');
+      setState(() {
+        _syncError = "Couldn't sync yet. Check your internet connection and try again. Your activity and hazard reports are safe on your phone.";
+      });
+      return;
+    }
+
+    // Everything is online now: close this and go back to Home.
+    final messenger = ScaffoldMessenger.of(context);
+    Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false);
+    messenger.showSnackBar(const SnackBar(content: Text('Synced. Your activity and hazard reports are online.')));
   }
 
   void _createChallenge() {
@@ -2588,10 +2733,12 @@ class _CompletionModalState extends State<_CompletionModal> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Padding(
         padding: const EdgeInsets.all(20),
+        // The whole card scrolls together (summary and buttons), so every
+        // button can be reached on any screen or text size.
         child: SingleChildScrollView(
           child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+          mainAxisSize: MainAxisSize.min,
+          children: [
               Container(
                 width: 64,
                 height: 64,
@@ -2692,6 +2839,7 @@ class _CompletionModalState extends State<_CompletionModal> {
                               ),
                             ],
                           ),
+                          MarkerLayer(markers: RouteEndMarker.markers(widget.route, a.type)),
                         ],
                       ),
                     ),
@@ -2733,9 +2881,13 @@ class _CompletionModalState extends State<_CompletionModal> {
                       const SizedBox(width: 8),
                       Flexible(
                         child: Text(
-                          widget.hazardIds.length == 1
-                              ? 'Your hazard report was shared to keep others safe.'
-                              : 'Your ${widget.hazardIds.length} hazard reports were shared to keep others safe.',
+                          a.pendingSync
+                              ? (widget.hazardIds.length == 1
+                                  ? 'Your hazard report is saved on your phone and will be shared once you are back online.'
+                                  : 'Your ${widget.hazardIds.length} hazard reports are saved on your phone and will be shared once you are back online.')
+                              : (widget.hazardIds.length == 1
+                                  ? 'Your hazard report was shared to keep others safe.'
+                                  : 'Your ${widget.hazardIds.length} hazard reports were shared to keep others safe.'),
                           style: TextStyle(color: Colors.green.shade200, fontSize: 12),
                         ),
                       ),
@@ -2754,6 +2906,32 @@ class _CompletionModalState extends State<_CompletionModal> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 10),
+
+              // Sync problem, shown right above the button that was tapped.
+              if (_syncError != null)
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: .14),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.red.withValues(alpha: .5)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.wifi_off, color: Colors.redAccent, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _syncError!,
+                          style: TextStyle(color: Colors.red.shade200, fontSize: 12.5, height: 1.35),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
 
               // Highlighted (filled, blue) while actionable — sharing is
               // what makes hazard reports from this ride visible to other
@@ -2931,7 +3109,11 @@ class _StatRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Row(
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.baseline,
                 textBaseline: TextBaseline.alphabetic,
                 children: [
@@ -2955,8 +3137,11 @@ class _StatRow extends StatelessWidget {
                   ],
                 ],
               ),
+              ),
               Text(
                 label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: Colors.grey.shade600,
                   fontSize: 9,
@@ -3461,7 +3646,7 @@ class _LiveClusterDetailSheetState extends State<_LiveClusterDetailSheet> {
               child: ListView.separated(
                 shrinkWrap: true,
                 itemCount: _sortedReports.length,
-                separatorBuilder: (_, __) =>
+                separatorBuilder: (_, _) =>
                     Divider(color: Colors.white10, height: 20),
                 itemBuilder: (context, index) {
                   final r = _sortedReports[index];

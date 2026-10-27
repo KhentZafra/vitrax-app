@@ -31,6 +31,9 @@ class PlannedRoute {
 /// polygons dropped around every nearby community-reported hazard, so
 /// the routing engine is told to route around those areas rather than
 /// VITRAX trying to compute avoidance itself.
+/// How the route is chosen: the quickest way there, or the shortest distance.
+enum RoutePreference { fastest, shortest }
+
 class DirectionsService {
   static const _baseUrl = 'https://api.openrouteservice.org/v2/directions';
 
@@ -85,19 +88,38 @@ class DirectionsService {
     required ActivityType activityType,
     List<LatLng> avoidCenters = const [],
     double avoidRadiusMeters = 80,
-    bool mainRoads = true,
+  }) async {
+    // Automatic: ask for both the fastest and the shortest way at once, then
+    // take the shorter one when it costs almost no extra time (within 5%),
+    // otherwise the fastest. The rider never has to choose.
+    final results = await Future.wait([
+      _fetchOne(start: start, destination: destination, activityType: activityType, avoidCenters: avoidCenters, avoidRadiusMeters: avoidRadiusMeters, preference: RoutePreference.fastest),
+      _fetchOne(start: start, destination: destination, activityType: activityType, avoidCenters: avoidCenters, avoidRadiusMeters: avoidRadiusMeters, preference: RoutePreference.shortest),
+    ]);
+    final fastest = results[0];
+    final shortest = results[1];
+    if (fastest == null) return shortest;
+    if (shortest == null) return fastest;
+    final nearlyAsQuick = shortest.durationSeconds <= fastest.durationSeconds * 1.05;
+    return (nearlyAsQuick && shortest.distanceMeters < fastest.distanceMeters) ? shortest : fastest;
+  }
+
+  static Future<PlannedRoute?> _fetchOne({
+    required LatLng start,
+    required LatLng destination,
+    required ActivityType activityType,
+    required List<LatLng> avoidCenters,
+    required double avoidRadiusMeters,
+    required RoutePreference preference,
   }) async {
     if (Env.orsApiKey.isEmpty || Env.orsApiKey == 'YOUR_OPENROUTESERVICE_API_KEY') {
       if (kDebugMode) print('DirectionsService: no ORS API key configured.');
       return null;
     }
 
-    // "Main roads" mode: the walking/cycling profiles love footpaths, farm
-    // tracks and shortcuts, which gives zig-zag routes with many turns. The
-    // driving profile follows the major connected roads instead (fewest
-    // turns), and ferries and toll roads are excluded. Cars' one-way rules
-    // can add a small detour in towns, which is the trade-off.
-    final profile = mainRoads ? 'driving-car' : _profileFor(activityType);
+    // Always route with the rider's own profile (cycling or walking/running)
+    // and ask OpenRouteService for the fastest or the shortest way there.
+    final profile = _profileFor(activityType);
     final uri = Uri.parse('$_baseUrl/$profile/geojson');
 
     final body = <String, dynamic>{
@@ -105,13 +127,10 @@ class DirectionsService {
         [start.longitude, start.latitude],
         [destination.longitude, destination.latitude],
       ],
+      'preference': preference == RoutePreference.shortest ? 'shortest' : 'fastest',
     };
 
     final options = <String, dynamic>{};
-    if (mainRoads) {
-      body['preference'] = 'recommended';
-      options['avoid_features'] = ['ferries', 'tollways'];
-    }
     if (avoidCenters.isNotEmpty) {
       options['avoid_polygons'] = {
         'type': 'MultiPolygon',

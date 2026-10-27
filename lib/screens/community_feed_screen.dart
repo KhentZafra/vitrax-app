@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import 'package:skeletonizer/skeletonizer.dart';
+import '../widgets/skeleton_views.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:video_player/video_player.dart';
 
@@ -27,7 +27,7 @@ import 'chat_list_screen.dart';
 import 'feed_notifications_screen.dart';
 import 'profile_screen.dart';
 import '../services/photo_upload_service.dart';
-import '../widgets/route_nav_icon.dart';
+import '../widgets/app_bottom_nav.dart';
 import '../widgets/user_avatar.dart';
 import 'routes_screen.dart';
 
@@ -48,10 +48,15 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   bool _searching = false;
   final _searchController = TextEditingController();
 
-  List<FeedItem> _items = [];
-  bool _isLoading = true;
-  String? _cursor;
-  bool _hasMore = false;
+  // Remembered between visits so coming back to the feed shows instantly.
+  static List<FeedItem>? _cachedItems;
+  static String? _cachedCursor;
+  static bool _cachedHasMore = false;
+
+  List<FeedItem> _items = _cachedItems ?? [];
+  bool _isLoading = _cachedItems == null;
+  String? _cursor = _cachedCursor;
+  bool _hasMore = _cachedHasMore;
   bool _loadingMore = false;
   final ScrollController _scroll = ScrollController();
   String? _myAvatarUrl;
@@ -135,7 +140,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   }
 
   Future<void> _load({bool silent = false}) async {
-    if (!silent) setState(() => _isLoading = true);
+    if (!silent && _cachedItems == null) setState(() => _isLoading = true);
     final page = await CommunityFeedService.fetchFeedPage();
     if (!mounted) return;
     setState(() {
@@ -150,6 +155,9 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
         _cursor = page.cursor;
         _hasMore = page.hasMore;
       }
+      _cachedItems = _items;
+      _cachedCursor = _cursor;
+      _cachedHasMore = _hasMore;
       _isLoading = false;
     });
   }
@@ -238,7 +246,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
 
   Future<void> _shareActivityFlow() async {
     final provider = context.read<ActivityProvider>();
-    final unshared = provider.allActivities.where((a) => !a.shared).toList();
+    final unshared = provider.allActivities.where((a) => !a.sharedToFeed).toList();
 
     if (!mounted) return;
     if (unshared.isEmpty) {
@@ -279,7 +287,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
     }
     if (!mounted) return;
 
-    final success = await provider.markActivityShared(chosen.id!, caption: details.caption, photoUrl: photoUrl);
+    final success = await provider.markActivityShared(chosen.id!, caption: details.caption, photoUrl: photoUrl, toFeed: true);
     if (!mounted) return;
 
     ScaffoldMessenger.of(context).clearSnackBars();
@@ -337,8 +345,10 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xff050505),
+      extendBody: true, // content shows behind the floating nav bar
       bottomNavigationBar: _buildBottomNav(),
       body: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             _buildHeader(),
@@ -406,14 +416,14 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   }
 
   Widget _buildFeed() {
-    return Skeletonizer(
+    return DelayedSkeletonizer(
       enabled: _isLoading,
       child: RefreshIndicator(
         onRefresh: _load,
         child: ListView(
           controller: _scroll,
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
           children: [
             if (_searching)
               Padding(
@@ -502,27 +512,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
     }
   }
 
-  Widget _buildBottomNav() {
-    return Container(
-      height: 90,
-      padding: const EdgeInsets.only(top: 6),
-      decoration: const BoxDecoration(color: Colors.black, border: Border(top: BorderSide(color: Colors.white10))),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _NavTab(icon: Icons.home_rounded, label: 'Home', selected: false, onTap: () => _navigateFromNav(0)),
-          _NavTab(customIcon: (color) => RouteNavIcon(color: color), label: 'Routes', selected: false, onTap: () => _navigateFromNav(1)),
-          _RecordNavTab(onTap: () => _navigateFromNav(2)),
-          Consumer<ChatUnreadProvider>(
-            builder: (context, unread, _) =>
-                _NavTab(icon: Icons.chat_bubble_outline, label: 'Community', selected: true, badgeCount: unread.count, onTap: () => _navigateFromNav(3)),
-          ),
-          _NavTab(icon: Icons.person_outline, label: 'You', selected: false, onTap: () => _navigateFromNav(4)),
-        ],
-      ),
-    );
-  }
+  Widget _buildBottomNav() => AppBottomNav(selectedIndex: 3, onTap: _navigateFromNav);
 }
 
 class _TopTabButton extends StatelessWidget {
@@ -571,7 +561,7 @@ class _ActivityPickerSheet extends StatelessWidget {
               child: ListView.separated(
                 shrinkWrap: true,
                 itemCount: activities.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                separatorBuilder: (_, _) => const SizedBox(height: 8),
                 itemBuilder: (context, index) {
                   final a = activities[index];
                   return InkWell(
@@ -1350,70 +1340,7 @@ class _SketchPainter extends CustomPainter {
   bool shouldRepaint(covariant _SketchPainter oldDelegate) => false;
 }
 
-class _NavTab extends StatelessWidget {
-  final IconData? icon;
-  final Widget Function(Color color)? customIcon;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  // Only the "Community" tab passes this (see _buildBottomNav) — it's
-  // where unread chat conversations live, so this is the one spot in
-  // the bottom nav that needs to show something new is waiting.
-  final int badgeCount;
 
-  const _NavTab({this.icon, this.customIcon, required this.label, required this.selected, required this.onTap, this.badgeCount = 0})
-      : assert(icon != null || customIcon != null);
-
-  @override
-  Widget build(BuildContext context) {
-    final color = selected ? Colors.blueAccent : Colors.grey;
-    return InkWell(
-      onTap: onTap,
-      child: SizedBox(
-        width: 68,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            NavBadge(count: badgeCount, child: customIcon != null ? customIcon!(color) : Icon(icon, color: color, size: 24)),
-            const SizedBox(height: 4),
-            Text(label, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: color, fontSize: 11)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RecordNavTab extends StatelessWidget {
-  final VoidCallback onTap;
-  const _RecordNavTab({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      customBorder: const CircleBorder(),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Transform.translate(
-            offset: const Offset(0, -6),
-            child: Container(
-              width: 58,
-              height: 58,
-              decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.blueAccent),
-              // Nudged 2px right so the triangle's visual center (its
-              // bulk sits left of its bounding box) lines up with the
-              // circle's actual center instead of looking off-balance.
-              child: const Center(child: Padding(padding: EdgeInsets.only(left: 2), child: Icon(Icons.play_arrow_rounded, color: Colors.white, size: 30))),
-            ),
-          ),
-          const Text('Record', style: TextStyle(color: Colors.grey, fontSize: 11)),
-        ],
-      ),
-    );
-  }
-}
 
 
 /// A single post on its own screen. Opened from a notification (someone
@@ -1463,4 +1390,11 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
       ),
     );
   }
+}
+
+/// Forget remembered feed data (called on sign-out).
+void clearFeedCache() {
+  _CommunityFeedScreenState._cachedItems = null;
+  _CommunityFeedScreenState._cachedCursor = null;
+  _CommunityFeedScreenState._cachedHasMore = false;
 }

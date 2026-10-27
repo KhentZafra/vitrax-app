@@ -4,8 +4,8 @@ class FeedNotification {
   final String actorId;
   final String actorName;
   final String? actorAvatarUrl;
-  final String type; // like | comment | reply | reshare
-  final String postKind; // activity | post
+  final String type; // like | comment | reply | reshare | route_like | route_retrace | badge
+  final String postKind; // activity | post | route | badge
   final String postId;
   final String? body;
   final bool isRead;
@@ -24,8 +24,15 @@ class FeedNotification {
     required this.createdAt,
   });
 
+  bool get isBadge => type == 'badge';
+  bool get isRoute => type == 'route_like' || type == 'route_retrace';
+
   String get message {
     switch (type) {
+      case 'route_like':
+        return 'liked a route you shared.';
+      case 'route_retrace':
+        return 'retraced your route.';
       case 'like':
         return 'liked your post.';
       case 'comment':

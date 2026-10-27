@@ -358,6 +358,37 @@ class ChatService {
     }
   }
 
+  /// "Typing…" signal between the two people in a conversation, sent over a
+  /// Supabase Realtime broadcast channel (nothing is stored in the database).
+  static RealtimeChannel openTypingChannel(String conversationId, void Function(String userId) onTyping) {
+    final channel = _supabase.channel('typing:$conversationId');
+    channel
+        .onBroadcast(
+          event: 'typing',
+          callback: (payload) {
+            final data = payload['payload'] is Map ? Map<String, dynamic>.from(payload['payload'] as Map) : payload;
+            final userId = data['user_id'];
+            if (userId is String) onTyping(userId);
+          },
+        )
+        .subscribe();
+    return channel;
+  }
+
+  static Future<void> sendTyping(RealtimeChannel channel) async {
+    final me = _supabase.auth.currentUser?.id;
+    if (me == null) return;
+    try {
+      await channel.sendBroadcastMessage(event: 'typing', payload: {'user_id': me});
+    } catch (_) {}
+  }
+
+  static Future<void> closeTypingChannel(RealtimeChannel channel) async {
+    try {
+      await _supabase.removeChannel(channel);
+    } catch (_) {}
+  }
+
   /// A user's profile photo URL (null if none), for the chat header.
   static Future<String?> fetchAvatarUrl(String userId) async {
     try {

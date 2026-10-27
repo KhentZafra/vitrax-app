@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:skeletonizer/skeletonizer.dart';
 
@@ -8,6 +10,14 @@ import 'package:skeletonizer/skeletonizer.dart';
 class ListSkeleton extends StatelessWidget {
   final int count;
   const ListSkeleton({super.key, this.count = 8});
+
+  @override
+  Widget build(BuildContext context) => DelayedShow(child: _ListSkeletonBody(count: count));
+}
+
+class _ListSkeletonBody extends StatelessWidget {
+  final int count;
+  const _ListSkeletonBody({required this.count});
 
   @override
   Widget build(BuildContext context) {
@@ -47,6 +57,14 @@ class CardsSkeleton extends StatelessWidget {
   const CardsSkeleton({super.key, this.count = 4});
 
   @override
+  Widget build(BuildContext context) => DelayedShow(child: _CardsSkeletonBody(count: count));
+}
+
+class _CardsSkeletonBody extends StatelessWidget {
+  final int count;
+  const _CardsSkeletonBody({required this.count});
+
+  @override
   Widget build(BuildContext context) {
     return Skeletonizer(
       enabled: true,
@@ -81,6 +99,13 @@ class CardsSkeleton extends StatelessWidget {
 /// Avatar, name, a row of stat tiles and a couple of cards (profile pages).
 class ProfileSkeleton extends StatelessWidget {
   const ProfileSkeleton({super.key});
+
+  @override
+  Widget build(BuildContext context) => const DelayedShow(child: _ProfileSkeletonBody());
+}
+
+class _ProfileSkeletonBody extends StatelessWidget {
+  const _ProfileSkeletonBody();
 
   @override
   Widget build(BuildContext context) {
@@ -143,5 +168,92 @@ class ProfileSkeleton extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// How long a screen may load before a placeholder is shown. On a good
+/// connection data arrives faster than this, so no skeleton flashes.
+const Duration kSkeletonDelay = Duration(milliseconds: 350);
+
+/// Shows [child] only after [kSkeletonDelay]; blank until then.
+class DelayedShow extends StatefulWidget {
+  final Widget child;
+  const DelayedShow({super.key, required this.child});
+
+  @override
+  State<DelayedShow> createState() => _DelayedShowState();
+}
+
+class _DelayedShowState extends State<DelayedShow> {
+  bool _show = false;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer(kSkeletonDelay, () {
+      if (mounted) setState(() => _show = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => _show ? widget.child : const SizedBox.expand();
+}
+
+/// Like Skeletonizer, but a loading state that ends within
+/// [kSkeletonDelay] never shows the skeleton (the content stays hidden
+/// for that short moment instead of flashing placeholders).
+class DelayedSkeletonizer extends StatefulWidget {
+  final bool enabled;
+  final Widget child;
+  const DelayedSkeletonizer({super.key, required this.enabled, required this.child});
+
+  @override
+  State<DelayedSkeletonizer> createState() => _DelayedSkeletonizerState();
+}
+
+class _DelayedSkeletonizerState extends State<DelayedSkeletonizer> {
+  bool _elapsed = false;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _arm();
+  }
+
+  void _arm() {
+    _timer?.cancel();
+    _elapsed = false;
+    if (widget.enabled) {
+      _timer = Timer(kSkeletonDelay, () {
+        if (mounted) setState(() => _elapsed = true);
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant DelayedSkeletonizer old) {
+    super.didUpdateWidget(old);
+    if (widget.enabled != old.enabled) _arm();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.enabled) return widget.child;
+    if (!_elapsed) return Opacity(opacity: 0, child: IgnorePointer(child: widget.child));
+    return Skeletonizer(enabled: true, child: widget.child);
   }
 }

@@ -1,3 +1,4 @@
+import '../services/activity_preference.dart';
 import 'package:flutter/material.dart';
 import '../widgets/skeleton_views.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -94,7 +95,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 Center(child: Text(_name, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold))),
                 if (_primaryActivity != null) ...[
                   const SizedBox(height: 4),
-                  Center(child: Text(_primaryActivity!, style: const TextStyle(color: Colors.blue, fontSize: 14))),
+                  Center(child: Text(ActivityPreference.label(_primaryActivity), style: const TextStyle(color: Colors.blue, fontSize: 14))),
                 ],
                 const SizedBox(height: 24),
                 if (stats != null) ...[

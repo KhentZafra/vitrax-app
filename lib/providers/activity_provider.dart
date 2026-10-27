@@ -1,8 +1,8 @@
+import '../services/offline_hazard_queue.dart';
 import 'package:flutter/foundation.dart';
 import '../services/badge_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/activity.dart';
-import '../services/connectivity_service.dart';
 import '../services/location_service.dart';
 import '../services/offline_activity_queue.dart';
 
@@ -73,6 +73,9 @@ class ActivityProvider extends ChangeNotifier {
   /// point of view; a GPS session's data is never silently discarded.
   /// Check [errorMessage] only if you specifically need to know whether
   /// the last save synced immediately or was queued.
+  /// Smallest distance (10 m) an activity needs to be saved.
+  static const double minSavableDistanceKm = 0.01;
+
   Future<Activity?> saveActivity({
     required ActivityType type,
     String? subtype,
@@ -80,7 +83,15 @@ class ActivityProvider extends ChangeNotifier {
     required Duration duration,
     required DateTime startedAt,
     List<GpsPoint> route = const [],
+    String? retracedFrom,
   }) async {
+    // An activity with no distance (so also no speed or average speed) is
+    // never saved, however long it lasted.
+    if (distanceKm < minSavableDistanceKm || duration.inSeconds <= 0) {
+      errorMessage = 'No distance or speed was recorded, so this activity was not saved.';
+      notifyListeners();
+      return null;
+    }
     final user = _supabase.auth.currentUser;
     if (user == null) {
       errorMessage = 'You must be signed in to save an activity.';
@@ -107,6 +118,7 @@ class ActivityProvider extends ChangeNotifier {
       startedAt: startedAt,
       route: route,
       location: location,
+      retracedFrom: retracedFrom,
     );
 
     try {
@@ -138,15 +150,22 @@ class ActivityProvider extends ChangeNotifier {
   /// activity is only removed from the local queue after a confirmed
   /// successful insert, so a failure or interruption just leaves it
   /// queued for the next attempt.
-  Future<void> syncPending() async {
-    if (isSyncing) return; // avoid overlapping sync runs
+  /// Why the last [syncPending] could not finish (null when it worked).
+  String? lastSyncError;
+
+  /// Returns true when nothing is left waiting to sync.
+  Future<bool> syncPending() async {
+    if (isSyncing) return false; // avoid overlapping sync runs
     final user = _supabase.auth.currentUser;
-    if (user == null) return;
+    if (user == null) return false;
+    lastSyncError = null;
 
     final pending = await OfflineActivityQueue.loadAll();
     if (pending.isEmpty) {
       pendingSyncCount = 0;
-      return;
+      // Hazard reports made offline may still be waiting to upload.
+      await OfflineHazardQueue.flush();
+      return true;
     }
 
     isSyncing = true;
@@ -159,22 +178,27 @@ class ActivityProvider extends ChangeNotifier {
         final saved = Activity.fromMap(inserted);
 
         await OfflineActivityQueue.remove(local.id!);
+        // Hazards reported during this ride now get linked to the real activity.
+        await OfflineHazardQueue.activitySynced(local.id!, saved.id!);
 
         _activities = _activities.map((a) => a.id == local.id ? saved : a).toList();
         syncedCount++;
       } catch (e) {
         debugPrint('syncPending: failed to sync ${local.id}: $e');
+        lastSyncError = e.toString();
         // Leave it queued — will retry on the next syncPending() call.
       }
     }
 
     pendingSyncCount = (await OfflineActivityQueue.loadAll()).length;
+    await OfflineHazardQueue.flush();
     isSyncing = false;
     notifyListeners();
 
     if (syncedCount > 0) {
       debugPrint('syncPending: synced $syncedCount activit${syncedCount == 1 ? 'y' : 'ies'}');
     }
+    return pendingSyncCount == 0;
   }
 
   /// Marks a saved activity as shared to the community feed, optionally
@@ -186,7 +210,9 @@ class ActivityProvider extends ChangeNotifier {
   /// Not available for an activity that's still `pendingSync` — there's
   /// no real Supabase row to attach a share to yet. Callers should check
   /// `activity.pendingSync` and disable the Share button until it syncs.
-  Future<bool> markActivityShared(String activityId, {String? caption, String? photoUrl}) async {
+  /// By default this only shares the route (Routes tab). Pass [toFeed] to
+  /// also post it on the Community feed.
+  Future<bool> markActivityShared(String activityId, {String? caption, String? photoUrl, bool toFeed = false}) async {
     if (activityId.startsWith('local_')) {
       errorMessage = 'This activity is still syncing, Try sharing again once it\'s back online.';
       notifyListeners();
@@ -195,6 +221,7 @@ class ActivityProvider extends ChangeNotifier {
 
     try {
       final updates = <String, dynamic>{'shared': true};
+      if (toFeed) updates['shared_to_feed'] = true;
       if (caption != null) updates['caption'] = caption;
       if (photoUrl != null) updates['photo_url'] = photoUrl;
 
@@ -202,7 +229,7 @@ class ActivityProvider extends ChangeNotifier {
 
       _activities = _activities.map((a) {
         if (a.id != activityId) return a;
-        return a.copyWith(shared: true, caption: caption ?? a.caption, photoUrl: photoUrl ?? a.photoUrl);
+        return a.copyWith(shared: true, sharedToFeed: toFeed ? true : a.sharedToFeed, caption: caption ?? a.caption, photoUrl: photoUrl ?? a.photoUrl);
       }).toList();
       notifyListeners();
       return true;

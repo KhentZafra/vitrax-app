@@ -160,7 +160,7 @@ class _ChatConversationsListState extends State<ChatConversationsList> {
       onRefresh: _load,
       child: ListView.separated(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.only(top: 8, bottom: 120),
         itemCount: active.length,
         separatorBuilder: (_, _) => const Divider(color: Colors.white10, height: 1, indent: 76),
         itemBuilder: (context, index) {
@@ -448,8 +448,6 @@ class _ArchivedChatsScreenState extends State<ArchivedChatsScreen> {
       _loading = false;
     });
     context.read<ChatUnreadProvider>().refresh();
-    // Nothing left to show: go back to the main list.
-    if (_archived.isEmpty && mounted) Navigator.maybePop(context);
   }
 
   @override
@@ -460,6 +458,8 @@ class _ArchivedChatsScreenState extends State<ArchivedChatsScreen> {
       body: SafeArea(
         child: _loading
             ? const ListSkeleton()
+            : _archived.isEmpty
+            ? Center(child: Text('No archived chats.', style: TextStyle(color: Colors.grey.shade500)))
             : RefreshIndicator(
                 onRefresh: _load,
                 child: ListView.separated(

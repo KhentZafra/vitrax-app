@@ -78,7 +78,7 @@ class CommunityFeedService {
     var query = _supabase
         .from('activities')
         .select('*, profiles(first_name, last_name, avatar_url)')
-        .eq('shared', true);
+        .eq('shared_to_feed', true);
     if (onlyId != null) query = query.eq('id', onlyId);
     if (before != null) query = query.lt('created_at', before);
     final rows = await query.order('created_at', ascending: false).limit(limit);

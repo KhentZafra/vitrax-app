@@ -1,3 +1,4 @@
+import '../widgets/route_nav_icon.dart';
 import 'dart:async';
 
 
@@ -13,7 +14,7 @@ import '../services/badge_service.dart';
 import '../widgets/badge_medal.dart';
 import '../widgets/skeleton_views.dart';
 import '../services/community_impact_service.dart';
-import '../widgets/route_nav_icon.dart';
+import '../widgets/app_bottom_nav.dart';
 import '../widgets/user_avatar.dart';
 import 'activity_detail_screen.dart';
 import 'all_activities_screen.dart';
@@ -46,13 +47,18 @@ enum _ProfileTab { overview, activities, achievements }
 class _ProfileScreenState extends State<ProfileScreen> {
   final _supabase = Supabase.instance.client;
 
-  String _name = '';
-  String _email = '';
-  String? _memberSince;
-  String? _avatarUrl;
-  CommunityImpactStats? _stats;
-  Map<String, int>? _badgeStats;
-  bool _isLoading = true;
+  // Remembered between visits so coming back to Profile shows instantly.
+  static String? _cName, _cEmail, _cSince, _cAvatar;
+  static CommunityImpactStats? _cStats;
+  static Map<String, int>? _cBadges;
+
+  String _name = _cName ?? '';
+  String _email = _cEmail ?? '';
+  String? _memberSince = _cSince;
+  String? _avatarUrl = _cAvatar;
+  CommunityImpactStats? _stats = _cStats;
+  Map<String, int>? _badgeStats = _cBadges;
+  bool _isLoading = _cStats == null;
   bool _offline = false; // profile could not be fetched (no internet): keep the skeleton and retry
   Timer? _retry;
 
@@ -75,7 +81,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final user = _supabase.auth.currentUser;
     if (user == null) return;
 
-    setState(() => _isLoading = true);
+    if (_cStats == null) setState(() => _isLoading = true);
 
     var profileFailed = false;
     try {
@@ -116,6 +122,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     if (!mounted) return;
+    if (!profileFailed) {
+      _cName = _name;
+      _cEmail = _email;
+      _cSince = _memberSince;
+      _cAvatar = _avatarUrl;
+      _cStats = _stats;
+      _cBadges = _badgeStats;
+    }
     setState(() {
       _isLoading = false;
       _offline = profileFailed;
@@ -157,6 +171,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xff050505),
+      extendBody: true, // content shows behind the floating nav bar
       bottomNavigationBar: _buildBottomNav(),
       appBar: AppBar(
         backgroundColor: const Color(0xff050505),
@@ -207,7 +222,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   final activities = provider.allActivities;
                   return SingleChildScrollView(
                     physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 30),
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 120),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -251,24 +266,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Widget _buildBottomNav() {
-    return Container(
-      height: 90,
-      padding: const EdgeInsets.only(top: 6),
-      decoration: const BoxDecoration(color: Colors.black, border: Border(top: BorderSide(color: Colors.white10))),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _NavTab(icon: Icons.home_rounded, label: 'Home', selected: false, onTap: () => _navigateFromNav(0)),
-          _NavTab(customIcon: (color) => RouteNavIcon(color: color), label: 'Routes', selected: false, onTap: () => _navigateFromNav(1)),
-          _RecordNavTab(onTap: () => _navigateFromNav(2)),
-          _NavTab(icon: Icons.chat_bubble_outline, label: 'Community', selected: false, onTap: () => _navigateFromNav(3)),
-          _NavTab(icon: Icons.person_outline, label: 'You', selected: true, onTap: () => _navigateFromNav(4)),
-        ],
-      ),
-    );
-  }
+  Widget _buildBottomNav() => AppBottomNav(selectedIndex: 4, onTap: _navigateFromNav);
 
   // ---------- Header ----------
 
@@ -644,7 +642,7 @@ class _ActivityCard extends StatelessWidget {
                     const SizedBox(height: 6),
                     Row(
                       children: [
-                        Icon(Icons.route_outlined, color: Colors.grey.shade500, size: 13),
+                        RouteNavIcon(color: Colors.grey.shade500, size: 13),
                         const SizedBox(width: 4),
                         Text('${activity.distanceKm.toStringAsFixed(1)} km', style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
                         const SizedBox(width: 12),
@@ -920,63 +918,12 @@ class _StatTile extends StatelessWidget {
   }
 }
 
-class _NavTab extends StatelessWidget {
-  final IconData? icon;
-  final Widget Function(Color color)? customIcon;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _NavTab({this.icon, this.customIcon, required this.label, required this.selected, required this.onTap})
-      : assert(icon != null || customIcon != null);
-
-  @override
-  Widget build(BuildContext context) {
-    final color = selected ? Colors.blueAccent : Colors.grey;
-    return InkWell(
-      onTap: onTap,
-      child: SizedBox(
-        width: 68,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            customIcon != null ? customIcon!(color) : Icon(icon, color: color, size: 24),
-            const SizedBox(height: 4),
-            Text(label, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: color, fontSize: 11)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RecordNavTab extends StatelessWidget {
-  final VoidCallback onTap;
-  const _RecordNavTab({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      customBorder: const CircleBorder(),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Transform.translate(
-            offset: const Offset(0, -6),
-            child: Container(
-              width: 58,
-              height: 58,
-              decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.blueAccent),
-              // Nudged 2px right so the triangle's visual center (its
-              // bulk sits left of its bounding box) lines up with the
-              // circle's actual center instead of looking off-balance.
-              child: const Center(child: Padding(padding: EdgeInsets.only(left: 2), child: Icon(Icons.play_arrow_rounded, color: Colors.white, size: 30))),
-            ),
-          ),
-          const Text('Record', style: TextStyle(color: Colors.grey, fontSize: 11)),
-        ],
-      ),
-    );
-  }
+/// Forget remembered Profile data (called on sign-out).
+void clearProfileCache() {
+  _ProfileScreenState._cName = null;
+  _ProfileScreenState._cEmail = null;
+  _ProfileScreenState._cSince = null;
+  _ProfileScreenState._cAvatar = null;
+  _ProfileScreenState._cStats = null;
+  _ProfileScreenState._cBadges = null;
 }

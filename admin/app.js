@@ -234,7 +234,7 @@
       if (q && !hay.includes(q)) return false;
       if (f === 'admin') return u.is_admin;
       if (f === 'suspended') return u.is_suspended;
-      if (f === 'Cyclist' || f === 'Runner') return u.primary_activity === f;
+      if (f === 'Cyclist' || f === 'Runner') return String(u.primary_activity || '').split(',').map((x) => x.trim()).includes(f);
       return true;
     });
   }
@@ -274,7 +274,7 @@
     const [acts, posts, comments, haz] = await Promise.all([head('activities'), head('community_posts'), head('feed_comments'), head('hazards')]);
     const { count: reportsAgainst } = await sb.from('chat_reports').select('*', { count: 'exact', head: true }).eq('reported_user_id', id);
     const { data: bdg } = await sb.from('user_badges').select('badge_key, tier').eq('user_id', id);
-    const BN = { first_steps: 'First Steps', distance: 'Distance Club', challenger: 'Challenger', streak: 'On a Roll', route_pioneer: 'Route Pioneer', safety_warden: 'Safety Warden', early_bird: 'Early Bird', endurance: 'Endurance', hazard_spotter: 'Hazard Spotter', trail_sharer: 'Trail Sharer', community_voice: 'Community Voice' };
+    const BN = { first_steps: 'First Steps', distance: 'Distance Club', challenger: 'Challenger', streak: 'On a Roll', route_pioneer: 'Route Pioneer', safety_warden: 'Safety Warden', early_bird: 'Early Bird', endurance: 'Endurance', hazard_spotter: 'Hazard Spotter', trail_sharer: 'Trail Sharer', community_voice: 'Community Voice', route_likes: 'Crowd Favorite' };
     const order = ['bronze', 'silver', 'gold', 'platinum', 'diamond', 'elite'], top = {};
     (bdg || []).forEach((b) => { if (!top[b.badge_key] || order.indexOf(b.tier) > order.indexOf(top[b.badge_key])) top[b.badge_key] = b.tier; });
     const badgeHtml = Object.entries(top).map(([k, t]) => badge(`${BN[k] || k} · ${t}`, t === 'elite' ? 'red' : (t === 'diamond' || t === 'platinum' || t === 'gold') ? 'amber' : 'blue')).join(' ') || '<span class="muted">None yet</span>';
