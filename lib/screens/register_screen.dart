@@ -353,7 +353,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             email: email,
             type: OtpType.signup,
             title: 'Verify your email',
-            message: 'We sent a 6-digit code to $email. Enter it to confirm that the address is yours.',
+            message: 'We sent a code to $email. Enter it to confirm that the address is yours.',
           );
           if (!mounted) return;
           if (ok) {

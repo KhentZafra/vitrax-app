@@ -54,7 +54,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isConnected = true;
   int _notifCount = 0;
   TableWatcher? _notifWatcher;
-  String _filter = 'all'; // all | ride | run | walk (This Week card)
+  String _filter = 'all'; // all | ride | run (This Week card)
 
   @override
   void initState() {
@@ -336,8 +336,6 @@ class _HomeScreenState extends State<HomeScreen> {
         return 'Cycling';
       case 'run':
         return 'Running';
-      case 'walk':
-        return 'Walking';
       default:
         return 'All Activities';
     }
@@ -351,7 +349,6 @@ class _HomeScreenState extends State<HomeScreen> {
         PopupMenuItem(value: 'all', child: Text('All Activities', style: TextStyle(color: Colors.white))),
         PopupMenuItem(value: 'ride', child: Text('Cycling', style: TextStyle(color: Colors.white))),
         PopupMenuItem(value: 'run', child: Text('Running', style: TextStyle(color: Colors.white))),
-        PopupMenuItem(value: 'walk', child: Text('Walking', style: TextStyle(color: Colors.white))),
       ],
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -708,7 +705,6 @@ class _RecentActivityTile extends StatelessWidget {
 
   IconData get _icon {
     if (title.toLowerCase().contains('run')) return Icons.directions_run;
-    if (title.toLowerCase().contains('walk')) return Icons.directions_walk;
     return Icons.pedal_bike;
   }
 

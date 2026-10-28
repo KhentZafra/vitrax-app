@@ -1,9 +1,11 @@
-enum ActivityType { ride, run, walk }
+enum ActivityType { ride, run }
 
 extension ActivityTypeX on ActivityType {
-  String get value => name; // 'ride' | 'run' | 'walk'
+  String get value => name; // 'ride' | 'run'
 
   static ActivityType fromString(String value) {
+    // Walking is no longer an activity type: old walk records count as runs.
+    if (value == 'walk') return ActivityType.run;
     return ActivityType.values.firstWhere(
       (t) => t.value == value,
       orElse: () => ActivityType.ride,
@@ -16,8 +18,6 @@ extension ActivityTypeX on ActivityType {
         return 'Ride';
       case ActivityType.run:
         return 'Run';
-      case ActivityType.walk:
-        return 'Walk';
     }
   }
 }
@@ -100,8 +100,6 @@ class Activity {
         return 'Ride';
       case ActivityType.run:
         return 'Run';
-      case ActivityType.walk:
-        return 'Walk';
     }
   }
 

@@ -1,3 +1,4 @@
+import '../widgets/account_dialogs.dart';
 import '../widgets/email_code_dialog.dart';
 import '../services/activity_preference.dart';
 import 'package:flutter/material.dart';
@@ -183,39 +184,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   // ---------------------------------------------------------------- email
 
   Future<void> _changeEmail() async {
-    final controller = TextEditingController();
-    final newEmail = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: const Color(0xff141414),
-        title: const Text('Change email', style: TextStyle(color: Colors.white)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Current: $_email', style: const TextStyle(color: Colors.grey, fontSize: 13)),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              keyboardType: TextInputType.emailAddress,
-              autofocus: true,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(labelText: 'New email address'),
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              "We'll send a 6-digit code to the new address. Your email only changes after you enter it.",
-              style: TextStyle(color: Colors.grey, fontSize: 12),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()), child: const Text('Send code')),
-        ],
-      ),
-    );
-    controller.dispose();
+    final newEmail = await showChangeEmailDialog(context, currentEmail: _email);
     if (newEmail == null || newEmail.isEmpty) return;
 
     if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(newEmail)) {
@@ -227,15 +196,21 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       return;
     }
 
+    final wait = EmailCodeCooldown.remaining(newEmail);
+    if (wait > 0) {
+      _snack('Please wait ${wait}s before requesting another code.');
+      return;
+    }
     try {
       await _supabase.auth.updateUser(UserAttributes(email: newEmail));
+      EmailCodeCooldown.mark(newEmail);
       if (!mounted) return;
       final ok = await showEmailCodeDialog(
         context,
         email: newEmail,
         type: OtpType.emailChange,
         title: 'Confirm new email',
-        message: 'We sent a 6-digit code to $newEmail. Enter it to finish changing your email.',
+        message: 'We sent a code to $newEmail. Enter it to finish changing your email.',
       );
       if (ok) {
         if (mounted) setState(() => _email = newEmail);
@@ -253,85 +228,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   // ------------------------------------------------------------- password
 
   Future<void> _changePassword() async {
-    final current = TextEditingController();
-    final next = TextEditingController();
-    final confirm = TextEditingController();
-    String? error;
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          backgroundColor: const Color(0xff141414),
-          title: const Text('Change password', style: TextStyle(color: Colors.white)),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: current,
-                  obscureText: true,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(labelText: 'Current password'),
-                ),
-                TextField(
-                  controller: next,
-                  obscureText: true,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(labelText: 'New password (min. 6 characters)'),
-                ),
-                TextField(
-                  controller: confirm,
-                  obscureText: true,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(labelText: 'Confirm new password'),
-                ),
-                if (error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 10),
-                    child: Text(error!, style: const TextStyle(color: Colors.redAccent, fontSize: 13)),
-                  ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-            TextButton(
-              onPressed: () async {
-                if (current.text.isEmpty) {
-                  setDialogState(() => error = 'Enter your current password.');
-                  return;
-                }
-                if (next.text.length < 6) {
-                  setDialogState(() => error = 'New password must be at least 6 characters.');
-                  return;
-                }
-                if (next.text != confirm.text) {
-                  setDialogState(() => error = "New passwords don't match.");
-                  return;
-                }
-                try {
-                  // Re-verify who is asking before changing the password.
-                  await _supabase.auth.signInWithPassword(email: _email, password: current.text);
-                  await _supabase.auth.updateUser(UserAttributes(password: next.text));
-                  if (dialogContext.mounted) Navigator.pop(dialogContext, true);
-                } on AuthException catch (e) {
-                  final wrong = e.message.toLowerCase().contains('invalid');
-                  setDialogState(() => error = wrong ? 'Current password is incorrect.' : e.message);
-                } catch (_) {
-                  setDialogState(() => error = "Couldn't change your password. Try again.");
-                }
-              },
-              child: const Text('Update'),
-            ),
-          ],
-        ),
-      ),
-    );
-    current.dispose();
-    next.dispose();
-    confirm.dispose();
-    if (ok == true) _snack('Password updated.');
+    final ok = await showChangePasswordDialog(context, email: _email);
+    if (!mounted) return;
+    if (ok) _snack('Password updated.');
   }
 
   // -------------------------------------------------------------- privacy

@@ -45,8 +45,7 @@ class DirectionsService {
       case ActivityType.ride:
         return 'cycling-regular';
       case ActivityType.run:
-      case ActivityType.walk:
-        return 'foot-walking';
+        return 'foot-walking'; // ORS name for its on-foot profile (running)
     }
   }
 
@@ -117,7 +116,7 @@ class DirectionsService {
       return null;
     }
 
-    // Always route with the rider's own profile (cycling or walking/running)
+    // Always route with the rider's own profile (cycling or running)
     // and ask OpenRouteService for the fastest or the shortest way there.
     final profile = _profileFor(activityType);
     final uri = Uri.parse('$_baseUrl/$profile/geojson');

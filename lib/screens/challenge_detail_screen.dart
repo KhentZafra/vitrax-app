@@ -815,8 +815,6 @@ class _ActivityPickerSheet extends StatelessWidget {
     switch (a.type) {
       case ActivityType.run:
         return Icons.directions_run;
-      case ActivityType.walk:
-        return Icons.directions_walk;
       case ActivityType.ride:
         return Icons.pedal_bike;
     }

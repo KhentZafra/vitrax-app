@@ -34,6 +34,14 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
   bool _hasPrize = false;
   bool _submitting = false;
 
+  // Inline error messages shown under the field that is wrong.
+  String? _titleError;
+  String? _targetError;
+  String? _prizeError;
+  String? _dateError;
+  String? _formError;
+  final _scrollController = ScrollController();
+
   bool get _isRouteMode => widget.seedActivity != null;
 
   @override
@@ -42,14 +50,18 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
     _descriptionController.dispose();
     _targetController.dispose();
     _prizeController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
-  InputDecoration _decoration(String label, {String? hint, IconData? icon}) {
+  InputDecoration _decoration(String label, {String? hint, IconData? icon, String? error}) {
     OutlineInputBorder border(Color c, [double w = 1.2]) =>
         OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: BorderSide(color: c, width: w));
     return InputDecoration(
       hintText: hint ?? label,
+      errorText: error,
+      errorMaxLines: 3,
+      errorStyle: const TextStyle(color: Colors.redAccent, fontSize: 12.5),
       hintStyle: TextStyle(color: Colors.grey.shade600),
       prefixIcon: icon == null ? null : Icon(icon, color: Colors.white54),
       filled: true,
@@ -58,6 +70,8 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
       border: border(Colors.white12),
       enabledBorder: border(Colors.white12),
       focusedBorder: border(Colors.blue, 1.6),
+      errorBorder: border(Colors.redAccent, 1.4),
+      focusedErrorBorder: border(Colors.redAccent, 1.8),
     );
   }
 
@@ -116,30 +130,65 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
   }
 
   Future<void> _pickDate({required bool isStart}) async {
-    final initial = isStart ? _startDate : _endDate;
+    // Real-time dates only: nothing before today, and the end can never be
+    // before the start.
+    final today = _dayOnly(DateTime.now());
+    final firstDate = isStart ? today : (_dayOnly(_startDate).isBefore(today) ? today : _dayOnly(_startDate));
+    var initial = isStart ? _startDate : _endDate;
+    if (_dayOnly(initial).isBefore(firstDate)) initial = firstDate;
     final picked = await showDatePicker(
       context: context,
       initialDate: initial,
-      firstDate: DateTime.now().subtract(const Duration(days: 1)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      firstDate: firstDate,
+      lastDate: today.add(const Duration(days: 365)),
     );
     if (picked == null) return;
     setState(() {
+      _dateError = null;
+      _formError = null;
       if (isStart) {
         _startDate = picked;
-        if (_endDate.isBefore(_startDate)) _endDate = _startDate.add(const Duration(days: 7));
+        if (_dayOnly(_endDate).isBefore(_dayOnly(_startDate))) _endDate = _startDate.add(const Duration(days: 7));
       } else {
         _endDate = picked;
       }
     });
   }
 
+  DateTime _dayOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+
+  void _showFormError(String message) {
+    setState(() => _formError = message);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) _scrollController.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+    });
+  }
+
   Future<void> _submit() async {
     final title = _titleController.text.trim();
+    setState(() {
+      _titleError = null;
+      _targetError = null;
+      _prizeError = null;
+      _dateError = null;
+      _formError = null;
+    });
+    var hasError = false;
 
     if (title.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Give your challenge a title.')));
-      return;
+      _titleError = 'Please enter a title for your challenge.';
+      hasError = true;
+    } else if (title.length < 3) {
+      _titleError = 'The title is too short (at least 3 characters).';
+      hasError = true;
+    }
+
+    if (_dayOnly(_startDate).isBefore(_dayOnly(DateTime.now()))) {
+      _dateError = 'The start date cannot be in the past. Pick today or a later date.';
+      hasError = true;
+    } else if (_dayOnly(_endDate).isBefore(_dayOnly(_startDate))) {
+      _dateError = 'The end date cannot be before the start date.';
+      hasError = true;
     }
 
     double target;
@@ -147,7 +196,7 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
     if (_isRouteMode) {
       final seed = widget.seedActivity!;
       if (seed.route.length < 2) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("This activity doesn't have enough route data to challenge others on.")));
+        _showFormError("This activity doesn't have enough route data to challenge others on.");
         return;
       }
       target = seed.distanceKm; // repurposed for display only — see ChallengeType.route's doc comment
@@ -155,10 +204,10 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
     } else {
       final parsed = double.tryParse(_targetController.text.trim());
       if (parsed == null || parsed <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid target.')));
-        return;
+        _targetError = 'Enter a target greater than 0 (numbers only).';
+        hasError = true;
       }
-      target = parsed;
+      target = parsed ?? 0;
       filter = _filter;
     }
 
@@ -166,9 +215,15 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
     if (_hasPrize) {
       prizeAmount = double.tryParse(_prizeController.text.trim());
       if (prizeAmount == null || prizeAmount <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid prize amount, or turn off the cash prize.')));
-        return;
+        _prizeError = 'Enter a prize amount greater than 0, or turn off the cash prize.';
+        hasError = true;
       }
+    }
+
+    if (hasError) {
+      setState(() {});
+      _showFormError('Please fix the highlighted fields.');
+      return;
     }
 
     setState(() => _submitting = true);
@@ -182,8 +237,12 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
       type: _type,
       targetValue: target,
       activityFilter: filter,
-      startDate: _startDate,
-      endDate: _endDate,
+      // Start of the first day to the END of the last day, so a challenge
+      // that starts and ends on the same day lasts that whole day.
+      // Starting today means starting right now (real time); a later start
+      // begins at the start of that day.
+      startDate: _dayOnly(_startDate) == _dayOnly(DateTime.now()) ? DateTime.now() : _dayOnly(_startDate),
+      endDate: DateTime(_endDate.year, _endDate.month, _endDate.day, 23, 59, 59),
       createdAt: DateTime.now(),
       prizeAmount: prizeAmount,
       routePoints: _isRouteMode ? widget.seedActivity!.route : null,
@@ -197,7 +256,7 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
     if (created != null) {
       Navigator.pop(context, created);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not create the challenge, Please try again.')));
+      _showFormError(ChallengeService.lastCreateError ?? 'Could not create the challenge. Please try again.');
     }
   }
 
@@ -208,12 +267,28 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
       appBar: AppBar(backgroundColor: const Color(0xff050505), foregroundColor: Colors.white, title: const Text('Create a Challenge', style: TextStyle(fontWeight: FontWeight.w700))),
       body: SafeArea(
         child: SingleChildScrollView(
+          controller: _scrollController,
           padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (_formError != null)
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(color: Colors.red.withValues(alpha: .12), borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.redAccent)),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.error_outline, color: Colors.redAccent, size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(child: Text(_formError!, style: const TextStyle(color: Colors.white, fontSize: 13.5, height: 1.35))),
+                    ],
+                  ),
+                ),
               _heading('Title'),
-              TextField(controller: _titleController, maxLength: 50, style: const TextStyle(color: Colors.white), decoration: _decoration('Title', hint: 'e.g. October Distance Challenge', icon: Icons.description_outlined)),
+              TextField(controller: _titleController, maxLength: 50, style: const TextStyle(color: Colors.white), decoration: _decoration('Title', hint: 'e.g. October Distance Challenge', icon: Icons.description_outlined, error: _titleError)),
               const SizedBox(height: 14),
               _heading('Description (optional)'),
               TextField(
@@ -252,7 +327,7 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
                   controller: _targetController,
                   keyboardType: TextInputType.number,
                   style: const TextStyle(color: Colors.white),
-                  decoration: _decoration('Target (${_type.unitLabel})', icon: Icons.outlined_flag),
+                  decoration: _decoration('Target (${_type.unitLabel})', icon: Icons.outlined_flag, error: _targetError),
                 ),
                 const SizedBox(height: 20),
                 _heading('Counts toward'),
@@ -301,6 +376,16 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
                   ),
                 ],
               ),
+              if (_dateError != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8, left: 4),
+                  child: Text(_dateError!, style: const TextStyle(color: Colors.redAccent, fontSize: 12.5)),
+                )
+              else
+                Padding(
+                  padding: const EdgeInsets.only(top: 8, left: 4),
+                  child: Text('A challenge can start and end on the same day (it lasts the whole day).', style: TextStyle(color: Colors.grey.shade600, fontSize: 11.5)),
+                ),
               const SizedBox(height: 20),
 
               // Cash prize section — panel's "GCash QR instead of GCash
@@ -333,7 +418,7 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
                   controller: _prizeController,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   style: const TextStyle(color: Colors.white),
-                  decoration: _decoration('Prize amount (₱)', icon: Icons.payments_outlined),
+                  decoration: _decoration('Prize amount (₱)', icon: Icons.payments_outlined, error: _prizeError),
                 ),
                 const SizedBox(height: 8),
                 Container(
@@ -393,8 +478,6 @@ class _RouteSummaryCard extends StatelessWidget {
     switch (activity.type) {
       case ActivityType.run:
         return Icons.directions_run;
-      case ActivityType.walk:
-        return Icons.directions_walk;
       case ActivityType.ride:
         return Icons.pedal_bike;
     }

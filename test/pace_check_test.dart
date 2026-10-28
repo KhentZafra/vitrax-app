@@ -19,10 +19,9 @@ void main() {
     });
   });
 
-  group('running and walking', () {
+  group('running', () {
     test('normal running is accepted', () {
       expect(ChallengeService.isPlausiblePace(ActivityType.run, 10), isTrue);
-      expect(ChallengeService.isPlausiblePace(ActivityType.walk, 5), isTrue);
     });
     test('exactly 45 km/h is the limit', () {
       expect(ChallengeService.isPlausiblePace(ActivityType.run, 45), isTrue);
@@ -30,7 +29,6 @@ void main() {
     });
     test('a cycling speed is not believable for a run', () {
       expect(ChallengeService.isPlausiblePace(ActivityType.run, 60), isFalse);
-      expect(ChallengeService.isPlausiblePace(ActivityType.walk, 60), isFalse);
       // ...but the same speed is fine on a bike
       expect(ChallengeService.isPlausiblePace(ActivityType.ride, 60), isTrue);
     });

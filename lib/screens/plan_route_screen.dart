@@ -199,7 +199,6 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
   //    otherwise a typical recreational pace.
   static const _typicalCycleKmh = 15.0;
   static const _typicalRunKmh = 8.0;
-  static const _typicalWalkKmh = 5.0;
 
   /// Straight-line metres from your start to where the route begins, and
   /// from where it ends to your pin.
@@ -250,8 +249,6 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
         return _typicalCycleKmh;
       case ActivityType.run:
         return _typicalRunKmh;
-      case ActivityType.walk:
-        return _typicalWalkKmh;
     }
   }
 

@@ -43,7 +43,13 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _resendConfirmationEmail() async {
     try {
       final email = emailController.text.trim();
+      final wait = EmailCodeCooldown.remaining(email);
+      if (wait > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please wait ${wait}s before requesting another code.')));
+        return;
+      }
       await supabase.auth.resend(type: OtpType.signup, email: email);
+      EmailCodeCooldown.mark(email);
       if (!mounted) return;
       ScaffoldMessenger.of(context).clearSnackBars();
       final ok = await showEmailCodeDialog(
@@ -51,7 +57,7 @@ class _LoginScreenState extends State<LoginScreen> {
         email: email,
         type: OtpType.signup,
         title: 'Verify your email',
-        message: 'We sent a 6-digit code to $email. Enter it to confirm your account.',
+        message: 'We sent a code to $email. Enter it to confirm your account.',
       );
       if (ok && mounted) {
         Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoadingScreen()));

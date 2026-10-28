@@ -5,7 +5,7 @@ import 'package:latlong2/latlong.dart';
 import '../models/activity.dart';
 
 /// Start / finish marker for route maps. The start shows the activity's own
-/// icon (cyclist for rides, runner for runs, walker for walks) and the finish
+/// icon (cyclist for rides, runner for runs) and the finish
 /// shows a flag, each with a "Start" / "Finish" label.
 class RouteEndMarker extends StatelessWidget {
   final bool isStart;
@@ -17,8 +17,6 @@ class RouteEndMarker extends StatelessWidget {
     switch (type) {
       case ActivityType.run:
         return Icons.directions_run;
-      case ActivityType.walk:
-        return Icons.directions_walk;
       case ActivityType.ride:
         return Icons.directions_bike;
     }

@@ -5,7 +5,6 @@ import '../widgets/skeleton_views.dart';
 import '../models/challenge.dart';
 import '../services/activity_preference.dart';
 import '../services/challenge_service.dart';
-import '../widgets/preferred_highlight.dart';
 import 'challenge_detail_screen.dart';
 import 'create_challenge_screen.dart';
 
@@ -65,14 +64,17 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final active = _challenges.where((c) => c.isActive).toList();
-    final upcoming = _challenges.where((c) => !c.hasStarted).toList();
+    // Four clearly different groups: the ones you joined, then open ones you
+    // can still join, then ones that have not started, then finished ones.
+    final joined = _challenges.where((c) => c.joinedByMe && !c.hasEnded).toList();
+    final active = _challenges.where((c) => !c.joinedByMe && c.isActive).toList();
+    final upcoming = _challenges.where((c) => !c.joinedByMe && !c.hasStarted).toList();
     final ended = _challenges.where((c) => c.hasEnded).toList();
 
     return Scaffold(
       backgroundColor: Colors.transparent,
       floatingActionButton: Padding(
-        padding: const EdgeInsets.only(bottom: 92),
+        padding: const EdgeInsets.only(bottom: 140),
         child: GestureDetector(
         onTap: _openCreate,
         child: Container(
@@ -93,7 +95,7 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
               onRefresh: _load,
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 130),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 180),
                 children: [
                   const _ChallengesBanner(),
                   const SizedBox(height: 18),
@@ -110,9 +112,10 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
                         ],
                       ),
                     ),
-                  if (active.isNotEmpty) ..._section('Active', active),
-                  if (upcoming.isNotEmpty) ..._section('Upcoming', upcoming),
-                  if (ended.isNotEmpty) ..._section('Ended', ended),
+                  if (joined.isNotEmpty) ..._section('Joined', joined, color: const Color(0xff1E88FF), icon: Icons.check_circle, hint: 'Challenges you are in  ·  ★ = matches your activity'),
+                  if (active.isNotEmpty) ..._section('Active now', active, color: const Color(0xff2ECC71), icon: Icons.play_circle_fill, hint: 'Open for you to join'),
+                  if (upcoming.isNotEmpty) ..._section('Upcoming', upcoming, color: const Color(0xffF5A623), icon: Icons.schedule, hint: 'Starting soon'),
+                  if (ended.isNotEmpty) ..._section('Ended', ended, color: const Color(0xff7A828C), icon: Icons.flag, hint: 'Finished challenges'),
                 ],
               ),
             ),
@@ -121,13 +124,19 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
 
   static const _collapsedCount = 3;
 
-  List<Widget> _section(String title, List<Challenge> unsorted) {
+  List<Widget> _section(String title, List<Challenge> unsorted, {required Color color, required IconData icon, required String hint}) {
     // Challenges for the user's chosen activity (cyclist / runner / both) first.
     final items = [...unsorted]
       ..sort((a, b) {
+        // Same order everywhere: live ones first, then ones not started yet;
+        // inside each, the ones that match your activity first, then soonest end.
+        int phase(Challenge c) => c.hasEnded ? 2 : (c.hasStarted ? 0 : 1);
+        final p = phase(a).compareTo(phase(b));
+        if (p != 0) return p;
         final am = _pref.matchesFilter(a.activityFilter) ? 0 : 1;
         final bm = _pref.matchesFilter(b.activityFilter) ? 0 : 1;
-        return am.compareTo(bm);
+        if (am != bm) return am.compareTo(bm);
+        return a.endDate.compareTo(b.endDate);
       });
     final expanded = _expanded.contains(title);
     final canToggle = items.length > _collapsedCount;
@@ -137,9 +146,17 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
         padding: const EdgeInsets.only(bottom: 12),
         child: Row(
           children: [
-            Container(width: 4, height: 18, decoration: BoxDecoration(color: _blue, borderRadius: BorderRadius.circular(2))),
-            const SizedBox(width: 12),
-            Expanded(child: Text(title, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
+            Icon(icon, color: color, size: 22),
+            const SizedBox(width: 10),
+            Text(title, style: TextStyle(color: color, fontSize: 17, fontWeight: FontWeight.w800)),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(color: color.withValues(alpha: .18), borderRadius: BorderRadius.circular(20)),
+              child: Text('${items.length}', style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w800)),
+            ),
+            const SizedBox(width: 8),
+            Expanded(child: Text(hint, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.grey.shade600, fontSize: 11.5))),
             if (canToggle)
               InkWell(
                 onTap: () => setState(() => expanded ? _expanded.remove(title) : _expanded.add(title)),
@@ -157,8 +174,9 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
         ),
       ),
       ...shown.map((c) {
-        final card = _ChallengeCard(challenge: c, goalLabel: _goalLabel(c), onTap: () => _openDetail(c));
-        return _pref.matchesFilter(c.activityFilter) ? Padding(padding: const EdgeInsets.only(bottom: 14), child: PreferredHighlight(child: card)) : card;
+        // Every card is the same size and shape; a star marks the ones that
+        // match your activity (no extra frame around some cards only).
+        return _ChallengeCard(challenge: c, goalLabel: _goalLabel(c), matches: _pref.matchesFilter(c.activityFilter), onTap: () => _openDetail(c));
       }),
       const SizedBox(height: 10),
     ];
@@ -232,10 +250,30 @@ class _ChallengesBanner extends StatelessWidget {
 class _ChallengeCard extends StatelessWidget {
   final Challenge challenge;
   final String goalLabel;
+  final bool matches;
   final VoidCallback onTap;
-  const _ChallengeCard({required this.challenge, required this.goalLabel, required this.onTap});
+  const _ChallengeCard({required this.challenge, required this.goalLabel, required this.onTap, this.matches = false});
 
   static const _blue = Color(0xff1E88FF);
+  static const _green = Color(0xff2ECC71);
+  static const _amber = Color(0xffF5A623);
+  static const _grey = Color(0xff7A828C);
+
+  /// The colour that tells the four states apart at a glance.
+  Color get _accent {
+    if (challenge.hasEnded) return _grey;
+    if (challenge.joinedByMe) return _blue;
+    if (!challenge.hasStarted) return _amber;
+    return _green;
+  }
+
+  String get _stateLabel {
+    if (challenge.iCompletedIt) return 'COMPLETED';
+    if (challenge.hasEnded) return 'ENDED';
+    if (challenge.joinedByMe) return 'JOINED';
+    if (!challenge.hasStarted) return 'UPCOMING';
+    return 'OPEN';
+  }
 
   String _dateRangeLabel() {
     String fmt(DateTime d) => '${d.month}/${d.day}';
@@ -260,14 +298,14 @@ class _ChallengeCard extends StatelessWidget {
       return const _StatusText(icon: Icons.check_circle, text: 'Completed', color: Colors.green);
     }
     if (challenge.hasEnded) {
-      return _StatusText(icon: Icons.flag, text: 'Ended', color: Colors.grey.shade500);
+      return _StatusText(icon: Icons.flag, text: 'Ended', color: _grey);
     }
     if (!challenge.hasStarted) {
-      final d = challenge.startDate;
-      return _StatusText(icon: Icons.schedule, text: 'Starts ${d.month}/${d.day}', color: _blue);
+      final days = challenge.startDate.difference(DateTime.now()).inDays;
+      return _StatusText(icon: Icons.schedule, text: days <= 0 ? 'Starts today' : 'Starts in ${days}d', color: _amber);
     }
     final left = challenge.endDate.difference(DateTime.now()).inDays;
-    return _StatusText(icon: Icons.timer_outlined, text: left <= 0 ? 'Ends today' : 'Ends in ${left}d', color: _blue);
+    return _StatusText(icon: Icons.timer_outlined, text: left <= 0 ? 'Live · Ends today' : 'Live · Ends in ${left}d', color: _green);
   }
 
   Widget _meta(IconData icon, String text) => Row(
@@ -282,23 +320,26 @@ class _ChallengeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ended = challenge.hasEnded;
+    final accent = _accent;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
-      child: InkWell(
+      child: Opacity(
+        opacity: ended ? .62 : 1,
+        child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(20),
         child: Container(
           decoration: BoxDecoration(
-            color: const Color(0xff0B0E13),
+            color: Color.alphaBlend(accent.withValues(alpha: ended ? .03 : .08), const Color(0xff0B0E13)),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white12),
+            border: Border.all(color: accent.withValues(alpha: ended ? .25 : .55), width: challenge.joinedByMe && !ended ? 1.6 : 1),
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(20),
             child: Stack(
               children: [
-                Positioned(left: 0, top: 0, bottom: 0, child: Container(width: 4, color: _blue)),
+                Positioned(left: 0, top: 0, bottom: 0, child: Container(width: 6, color: accent)),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 14, 14, 12),
                   child: Column(
@@ -309,10 +350,10 @@ class _ChallengeCard extends StatelessWidget {
                           Container(
                             width: 44,
                             height: 44,
-                            decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xff0C2447)),
+                            decoration: BoxDecoration(shape: BoxShape.circle, color: accent.withValues(alpha: .18)),
                             child: Icon(
                               challenge.iCompletedIt ? Icons.check_circle : Icons.emoji_events,
-                              color: challenge.iCompletedIt ? Colors.green : _blue,
+                              color: challenge.iCompletedIt ? Colors.green : accent,
                               size: 22,
                             ),
                           ),
@@ -323,6 +364,7 @@ class _ChallengeCard extends StatelessWidget {
                               children: [
                                 Row(
                                   children: [
+                                    if (matches) ...[const Icon(Icons.star_rounded, color: Color(0xffFFC83D), size: 17), const SizedBox(width: 4)],
                                     Expanded(
                                       child: Text(
                                         challenge.title,
@@ -330,12 +372,21 @@ class _ChallengeCard extends StatelessWidget {
                                         style: TextStyle(color: ended ? Colors.grey.shade300 : Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
                                       ),
                                     ),
-                                    if (challenge.joinedByMe)
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                        decoration: BoxDecoration(color: _blue.withValues(alpha: .18), borderRadius: BorderRadius.circular(20)),
-                                        child: const Text('Joined', style: TextStyle(color: _blue, fontSize: 11, fontWeight: FontWeight.w600)),
+                                    Container(
+                                      margin: const EdgeInsets.only(left: 6),
+                                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: (challenge.joinedByMe && !ended) ? _blue : accent.withValues(alpha: .18),
+                                        borderRadius: BorderRadius.circular(20),
                                       ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          if (challenge.joinedByMe && !ended) ...[const Icon(Icons.check, color: Colors.white, size: 12), const SizedBox(width: 3)],
+                                          Text(_stateLabel, style: TextStyle(color: (challenge.joinedByMe && !ended) ? Colors.white : accent, fontSize: 10.5, fontWeight: FontWeight.w800, letterSpacing: .5)),
+                                        ],
+                                      ),
+                                    ),
                                   ],
                                 ),
                                 const SizedBox(height: 8),
@@ -372,6 +423,7 @@ class _ChallengeCard extends StatelessWidget {
             ),
           ),
         ),
+      ),
       ),
     );
   }

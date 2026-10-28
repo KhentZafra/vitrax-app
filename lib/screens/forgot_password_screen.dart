@@ -53,12 +53,18 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       setState(() => _error = 'Enter a valid email address.');
       return;
     }
+    final wait = EmailCodeCooldown.remaining(email);
+    if (wait > 0) {
+      setState(() => _error = 'Please wait ${wait}s before requesting another code.');
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
       await _supabase.auth.resetPasswordForEmail(email);
+      EmailCodeCooldown.mark(email);
     } on AuthException catch (e) {
       if (mounted) {
         setState(() {
@@ -83,7 +89,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       email: email,
       type: OtpType.recovery,
       title: 'Enter the code',
-      message: 'If an account exists for $email, we sent a 6-digit code to it. It expires in an hour.',
+      message: 'If an account exists for $email, we sent a code to it. It expires in an hour.',
     );
     if (ok && mounted) setState(() => _codeVerified = true);
   }
@@ -133,7 +139,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 Text(_codeVerified ? 'NEW PASSWORD' : 'FORGOT PASSWORD', style: techText(24, letterSpacing: 3)),
                 const SizedBox(height: 12),
                 Text(
-                  _codeVerified ? 'Choose a new password for your account.' : "Enter your account email. We'll send you a 6-digit code to reset your password.",
+                  _codeVerified ? 'Choose a new password for your account.' : "Enter your account email. We'll send you a code to reset your password.",
                   style: authBodyStyle,
                 ),
                 const SizedBox(height: 28),

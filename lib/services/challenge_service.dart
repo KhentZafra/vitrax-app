@@ -83,9 +83,36 @@ class ChallengeService {
   /// with that time already filled in, putting them straight onto the
   /// leaderboard as the time to beat rather than leaving them as an
   /// un-timed participant.
+  /// Why the last createChallenge() failed, in plain words (shown in the form).
+  static String? lastCreateError;
+
+  static String _friendlyCreateError(Object e) {
+    final m = e.toString().toLowerCase();
+    if (m.contains('socketexception') || m.contains('failed host lookup') || m.contains('clientexception') || m.contains('timeout')) {
+      return 'No internet connection. Check your connection and try again.';
+    }
+    if (m.contains('date') && (m.contains('check') || m.contains('constraint'))) {
+      return 'The end date must be after the start date.';
+    }
+    if (m.contains('row-level security') || m.contains('42501') || m.contains('permission')) {
+      return "You don't have permission to create a challenge. Please sign in again.";
+    }
+    if (m.contains('check constraint') || m.contains('23514')) {
+      return 'One of the values is not allowed (for example the target or prize amount). Please review the form.';
+    }
+    if (m.contains('jwt') || m.contains('not authenticated')) {
+      return 'Your session expired. Please sign in again.';
+    }
+    return 'Something went wrong on our side. Please try again in a moment.';
+  }
+
   static Future<Challenge?> createChallenge(Challenge challenge) async {
+    lastCreateError = null;
     final user = _supabase.auth.currentUser;
-    if (user == null) return null;
+    if (user == null) {
+      lastCreateError = 'You need to be signed in to create a challenge.';
+      return null;
+    }
 
     try {
       final inserted = await _supabase.from('challenges').insert(challenge.toInsertMap(creatorId: user.id)).select('*, profiles(first_name, last_name, avatar_url)').single();
@@ -104,6 +131,7 @@ class ChallengeService {
     } catch (e) {
       // ignore: avoid_print
       print('ChallengeService.createChallenge failed: $e');
+      lastCreateError = _friendlyCreateError(e);
       return null;
     }
   }
@@ -300,8 +328,8 @@ class ChallengeService {
           .select('user_id, distance_km, duration_seconds, type, started_at')
           .eq('shared', true)
           .inFilter('user_id', participantIds)
-          .gte('started_at', challenge.startDate.toIso8601String())
-          .lte('started_at', challenge.endDate.add(const Duration(days: 1)).toIso8601String());
+          .gte('started_at', challenge.startDate.toUtc().toIso8601String())
+          .lte('started_at', challenge.endDate.add(const Duration(days: 1)).toUtc().toIso8601String());
 
       if (challenge.activityFilter != ChallengeActivityFilter.any) {
         query = query.eq('type', challenge.activityFilter == ChallengeActivityFilter.run ? 'run' : 'ride');

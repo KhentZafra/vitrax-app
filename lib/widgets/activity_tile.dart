@@ -35,8 +35,6 @@ class ActivityTile extends StatelessWidget {
         return Icons.pedal_bike;
       case ActivityType.run:
         return Icons.directions_run;
-      case ActivityType.walk:
-        return Icons.directions_walk;
     }
   }
 
