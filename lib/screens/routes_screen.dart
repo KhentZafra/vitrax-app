@@ -57,7 +57,6 @@ class _RoutesScreenState extends State<RoutesScreen> {
   // Type filter: Cycling / Running, each expandable to its sub-types.
   ActivityType? _filterType; // null = all types
   String? _filterSub; // null = every sub-type of the chosen type
-  ActivityType? _expandedType; // which type's sub-type list is open
   bool _mineOnly = false; // "My routes": only routes I shared
 
   static const _cyclingSubs = ['Road cycling', 'Mountain biking', 'Gravel cycling', 'Cycle touring', 'Bikepacking', 'BMX', 'Fat biking', 'Track cycling'];
@@ -118,132 +117,108 @@ class _RoutesScreenState extends State<RoutesScreen> {
       });
   }
 
-  /// Pill with an optional dropdown arrow, shared by the type / mine chips.
-  Widget _pill({required String label, required IconData icon, required Color color, required bool selected, required VoidCallback onTap, bool? expanded}) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(24),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-          decoration: BoxDecoration(
-            color: selected ? color.withValues(alpha: .2) : const Color(0xff141414),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: selected ? color : Colors.white10),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 16, color: selected ? color : Colors.grey.shade400),
-              const SizedBox(width: 6),
-              Text(label, style: TextStyle(color: selected ? color : Colors.grey.shade400, fontSize: 13, fontWeight: FontWeight.w600)),
-              if (expanded != null) ...[
-                const SizedBox(width: 2),
-                AnimatedRotation(
-                  turns: expanded ? .5 : 0,
-                  duration: const Duration(milliseconds: 180),
-                  child: Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: selected ? color : Colors.grey.shade500),
-                ),
-              ],
-            ],
-          ),
+  /// Dropdown pill in the same style as the Home screen's activity filter.
+  Widget _dropdownPill<T>({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required bool active,
+    required List<PopupMenuEntry<T>> Function(BuildContext) items,
+    required void Function(T) onSelected,
+  }) {
+    return PopupMenuButton<T>(
+      onSelected: onSelected,
+      color: const Color(0xff101a2b),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      itemBuilder: items,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: active ? color.withValues(alpha: .18) : const Color(0xff0c1624),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: active ? color : Colors.white12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: active ? color : Colors.grey.shade400),
+            const SizedBox(width: 6),
+            Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: active ? color : Colors.white, fontSize: 14, fontWeight: FontWeight.w600))),
+            const SizedBox(width: 2),
+            Icon(Icons.keyboard_arrow_down_rounded, size: 20, color: active ? color : Colors.white),
+          ],
         ),
       ),
     );
   }
 
-  void _tapType(ActivityType t) {
-    setState(() {
-      if (_filterType == t) {
-        // Already chosen: the pill just opens/closes its sub-type list.
-        _expandedType = _expandedType == t ? null : t;
-      } else {
-        _filterType = t;
-        _filterSub = null;
-        _expandedType = t;
-      }
-    });
-  }
-
-  /// Type + "My routes" filter row, with the sub-type list opening beneath.
+  /// Type dropdown + sub-type dropdown + "My routes", all on one row so
+  /// nothing needs horizontal scrolling.
   Widget _buildTypeFilter() {
-    final subs = _expandedType == ActivityType.ride ? _cyclingSubs : (_expandedType == ActivityType.run ? _runningSubs : const <String>[]);
-    Widget subChip(String label, String? value) {
-      final sel = _filterSub == value;
-      return Padding(
-        padding: const EdgeInsets.only(right: 8),
-        child: ChoiceChip(
-          label: Text(label),
-          selected: sel,
-          onSelected: (_) => setState(() => _filterSub = value),
-          backgroundColor: const Color(0xff141414),
-          selectedColor: Colors.blue.withValues(alpha: .25),
-          labelStyle: TextStyle(color: sel ? Colors.lightBlueAccent : Colors.grey.shade400, fontSize: 12.5, fontWeight: FontWeight.w600),
-          side: BorderSide(color: sel ? Colors.blue : Colors.white10),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          showCheckmark: false,
-        ),
-      );
-    }
+    final subs = _filterType == ActivityType.ride ? _cyclingSubs : (_filterType == ActivityType.run ? _runningSubs : const <String>[]);
+    PopupMenuItem<T> item<T>(T v, String text, {bool selected = false}) => PopupMenuItem<T>(
+          value: v,
+          child: Row(children: [
+            Expanded(child: Text(text, style: TextStyle(color: selected ? Colors.lightBlueAccent : Colors.white, fontWeight: selected ? FontWeight.w700 : FontWeight.w500))),
+            if (selected) const Icon(Icons.check, size: 16, color: Colors.lightBlueAccent),
+          ]),
+        );
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    final typeLabel = _filterType == null ? 'All types' : (_filterType == ActivityType.ride ? 'Cycling' : 'Running');
+    final typeIcon = _filterType == ActivityType.run ? Icons.directions_run_rounded : (_filterType == ActivityType.ride ? Icons.directions_bike_rounded : Icons.apps_rounded);
+    final typeColor = _filterType == ActivityType.run ? Colors.orangeAccent : Colors.lightBlueAccent;
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              _pill(
-                label: 'All types',
-                icon: Icons.apps_rounded,
-                color: Colors.blue,
-                selected: _filterType == null,
-                onTap: () => setState(() {
-                  _filterType = null;
-                  _filterSub = null;
-                  _expandedType = null;
-                }),
-              ),
-              _pill(
-                label: _filterType == ActivityType.ride && _filterSub != null ? _filterSub! : 'Cycling',
-                icon: Icons.directions_bike_rounded,
-                color: Colors.lightBlueAccent,
-                selected: _filterType == ActivityType.ride,
-                expanded: _expandedType == ActivityType.ride,
-                onTap: () => _tapType(ActivityType.ride),
-              ),
-              _pill(
-                label: _filterType == ActivityType.run && _filterSub != null ? _filterSub! : 'Running',
-                icon: Icons.directions_run_rounded,
-                color: Colors.orangeAccent,
-                selected: _filterType == ActivityType.run,
-                expanded: _expandedType == ActivityType.run,
-                onTap: () => _tapType(ActivityType.run),
-              ),
-              _pill(
-                label: 'My routes',
-                icon: Icons.person_outline_rounded,
-                color: const Color(0xff22c55e),
-                selected: _mineOnly,
-                onTap: () => setState(() => _mineOnly = !_mineOnly),
-              ),
-            ],
-          ),
+        _dropdownPill<String>(
+          label: typeLabel,
+          icon: typeIcon,
+          color: typeColor,
+          active: _filterType != null,
+          items: (_) => [
+            item('all', 'All types', selected: _filterType == null),
+            item('ride', 'Cycling', selected: _filterType == ActivityType.ride),
+            item('run', 'Running', selected: _filterType == ActivityType.run),
+          ],
+          onSelected: (v) => setState(() {
+            _filterSub = null;
+            _filterType = v == 'ride' ? ActivityType.ride : (v == 'run' ? ActivityType.run : null);
+          }),
         ),
-        AnimatedSize(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-          alignment: Alignment.topCenter,
-          child: subs.isEmpty
-              ? const SizedBox(width: double.infinity)
-              : Padding(
-                  padding: const EdgeInsets.only(top: 10),
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(children: [subChip('All', null), for (final x in subs) subChip(x, x)]),
-                  ),
-                ),
+        if (_filterType != null)
+          _dropdownPill<String>(
+            label: _filterSub ?? (_filterType == ActivityType.ride ? 'All cycling' : 'All running'),
+            icon: Icons.tune_rounded,
+            color: typeColor,
+            active: _filterSub != null,
+            items: (_) => [
+              item('', _filterType == ActivityType.ride ? 'All cycling' : 'All running', selected: _filterSub == null),
+              for (final x in subs) item(x, x, selected: _filterSub == x),
+            ],
+            onSelected: (v) => setState(() => _filterSub = v.isEmpty ? null : v),
+          ),
+        InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => setState(() => _mineOnly = !_mineOnly),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            decoration: BoxDecoration(
+              color: _mineOnly ? const Color(0xff22c55e).withValues(alpha: .18) : const Color(0xff0c1624),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: _mineOnly ? const Color(0xff22c55e) : Colors.white12),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.person_outline_rounded, size: 16, color: _mineOnly ? const Color(0xff22c55e) : Colors.grey.shade400),
+                const SizedBox(width: 6),
+                Text('My routes', style: TextStyle(color: _mineOnly ? const Color(0xff22c55e) : Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
         ),
       ],
     );
