@@ -392,7 +392,10 @@
   }
 
   // ===================================================== PAGE: challenges
-  async function renderChallenges(page) { page.innerHTML = '<div id="list"></div>'; await drawChallenges(); }
+  async function renderChallenges(page) {
+    page.innerHTML = '<div class="toolbar"><button class="btn primary" data-act="new-challenge">+ New challenge</button><span class="muted small">Official challenges are announced to every user. Prizes are paid by the organizer (you) by GCash.</span></div><div id="list"></div>';
+    await drawChallenges();
+  }
   async function drawChallenges() {
     const { rows, count } = await fetchPage('challenges', { order: 'start_date', page: view.page });
     await loadPeople(rows.map((r) => r.creator_id));
@@ -405,7 +408,7 @@
     const day = (iso) => (iso ? new Date(iso).toLocaleDateString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric' }) : '—');
     const status = (c) => (now < new Date(c.start_date) ? badge('upcoming', 'amber') : now > new Date(c.end_date) ? badge('ended') : badge('active', 'green'));
     $('#list').innerHTML = table([
-      { h: 'Challenge', cls: 'wrap', f: (c) => `<b>${esc(c.title)}</b><div class="muted small">${esc(c.description || '')}</div>` },
+      { h: 'Challenge', cls: 'wrap', f: (c) => `<b>${esc(c.title)}</b> ${c.is_official ? badge('official', 'blue') : ''}<div class="muted small">${esc(c.description || '')}</div>` },
       { h: 'Creator', f: (c) => who(c.creator_id) }, { h: 'Type', f: (c) => esc(c.type) },
       { h: 'Target', f: (c) => esc(c.type === 'route' ? 'route' : c.target_value) },
       { h: 'Dates', f: (c) => `${day(c.start_date)} → ${day(c.end_date)}` },
@@ -609,6 +612,39 @@
       if (error) return fail(error, 'Could not rule'); toast('Ruled: paid.'); await render();
     },
     participants: (id) => showParticipants(id),
+    'new-challenge': () => {
+      const pad = (n) => String(n).padStart(2, '0');
+      const local = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      const start = new Date(Date.now() + 3600e3), end = new Date(Date.now() + 8 * 86400e3);
+      openModal(`<h2 style="margin-top:0">New official challenge</h2>
+        <form id="nc-form" style="display:grid;gap:10px">
+          <label>Title<input id="nc-title" maxlength="80" required placeholder="e.g. Summer 100 km Challenge"></label>
+          <label>Description<textarea id="nc-desc" rows="3" maxlength="400" placeholder="Tell users why they should join"></textarea></label>
+          <label>Goal type<select id="nc-type"><option value="distance">Distance (km)</option><option value="activity_count">Number of activities</option><option value="duration">Duration (minutes)</option></select></label>
+          <label>Target<input id="nc-target" type="number" min="1" step="any" required placeholder="e.g. 100"></label>
+          <label>Counts which activities<select id="nc-filter"><option value="any">Any</option><option value="run">Running only</option><option value="ride">Cycling only</option></select></label>
+          <label>Starts<input id="nc-start" type="datetime-local" required value="${local(start)}"></label>
+          <label>Ends<input id="nc-end" type="datetime-local" required value="${local(end)}"></label>
+          <label>Prize in ₱ (optional)<input id="nc-prize" type="number" min="0" step="1" placeholder="0 = no prize"></label>
+          <button class="btn primary" type="submit">Publish challenge</button>
+        </form>`);
+      $('#nc-form').onsubmit = async (ev) => {
+        ev.preventDefault();
+        const title = $('#nc-title').value.trim(), target = Number($('#nc-target').value);
+        const s = new Date($('#nc-start').value), e = new Date($('#nc-end').value);
+        const prize = Number($('#nc-prize').value) || 0;
+        if (!title || !(target > 0)) return toast('Enter a title and a target above 0.', true);
+        if (!(e > s)) return toast('The end must be after the start.', true);
+        if (!(await ask(`Publish "${title}"${prize ? ` with a ₱${prize.toLocaleString()} prize` : ''}? Every user will be notified.${prize ? ' You will pay the winner by GCash.' : ''}`, { title: 'Publish challenge?', okText: 'Publish' }))) return;
+        const { error } = await sb.from('challenges').insert({
+          creator_id: me.id, title, description: $('#nc-desc').value.trim() || null,
+          type: $('#nc-type').value, target_value: target, activity_filter: $('#nc-filter').value,
+          start_date: s.toISOString(), end_date: e.toISOString(), prize_amount: prize || null, is_official: true,
+        });
+        if (error) return fail(error, 'Could not create challenge');
+        closeModal(); toast('Challenge published.'); await render();
+      };
+    },
     'mark-paid': async (id, btn) => {
       const user = btn.dataset.user;
       if (!(await ask(`Admin override: record that the creator already paid the prize to ${nameOf(user)}. Only do this after you have verified the payment.`, { title: 'Mark prize as paid?', okText: 'Mark paid' }))) return;
