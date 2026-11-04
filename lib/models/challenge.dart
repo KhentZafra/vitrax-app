@@ -112,6 +112,9 @@ class Challenge {
   final List<GpsPoint>? routePoints;
   final int? baselineDurationSeconds;
 
+  /// Created by the Vitrax team from the admin dashboard.
+  final bool isOfficial;
+
   Challenge({
     required this.id,
     required this.creatorId,
@@ -130,6 +133,7 @@ class Challenge {
     this.myCompletedAt,
     this.routePoints,
     this.baselineDurationSeconds,
+    this.isOfficial = false,
   });
 
   bool get hasEnded => DateTime.now().isAfter(endDate);
@@ -152,7 +156,8 @@ class Challenge {
     return Challenge(
       id: map['id'] as String,
       creatorId: map['creator_id'] as String,
-      creatorName: name.isEmpty ? 'A Vitrax user' : name,
+      creatorName: map['is_official'] == true ? 'Vitrax Admin' : (name.isEmpty ? 'A Vitrax user' : name),
+      isOfficial: map['is_official'] == true,
       title: map['title'] as String,
       description: map['description'] as String?,
       type: ChallengeTypeX.fromString(map['type'] as String),

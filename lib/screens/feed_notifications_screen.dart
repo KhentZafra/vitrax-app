@@ -82,6 +82,8 @@ class _FeedNotificationsScreenState extends State<FeedNotificationsScreen> {
         return Icons.favorite;
       case 'route_retrace':
         return Icons.directions_bike;
+      case 'announcement':
+        return Icons.campaign;
       case 'badge':
         return Icons.emoji_events;
       case 'reshare':
@@ -109,6 +111,48 @@ class _FeedNotificationsScreenState extends State<FeedNotificationsScreen> {
     return '$title ($tier)';
   }
 
+  /// Official challenge announcement: a bright card so it stands out in the list.
+  Widget _announcementTile(FeedNotification n) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => _open(n),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            gradient: const LinearGradient(colors: [Color(0xff1b3a8a), Color(0xff0b1c3d)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+            border: Border.all(color: n.isRead ? const Color(0xff2a3a66) : const Color(0xffFFC83D), width: n.isRead ? 1 : 1.5),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const CircleAvatar(radius: 22, backgroundColor: Color(0xffFFC83D), child: Icon(Icons.campaign, color: Colors.black, size: 26)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      const Text('VITRAX ADMIN', style: TextStyle(color: Color(0xffFFC83D), fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1)),
+                      const SizedBox(width: 8),
+                      Text(_ago(n.createdAt), style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                    ]),
+                    const SizedBox(height: 6),
+                    Text(n.body ?? 'A new challenge is live. Join now!', style: const TextStyle(color: Colors.white, fontSize: 14.5, fontWeight: FontWeight.w600, height: 1.3)),
+                    const SizedBox(height: 8),
+                    const Text('Tap to view and join  >', style: TextStyle(color: Color(0xff6aa2ff), fontSize: 12, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -129,6 +173,7 @@ class _FeedNotificationsScreenState extends State<FeedNotificationsScreen> {
                     separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xff1a1a1a)),
                     itemBuilder: (_, i) {
                       final n = _list[i];
+                      if (n.isAnnouncement) return _announcementTile(n);
                       return InkWell(
                         onTap: () => _open(n),
                         child: Container(

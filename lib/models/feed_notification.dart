@@ -25,6 +25,7 @@ class FeedNotification {
   });
 
   bool get isBadge => type == 'badge';
+  bool get isAnnouncement => type == 'announcement';
   bool get isRoute => type == 'route_like' || type == 'route_retrace';
 
   String get message {
@@ -53,7 +54,7 @@ class FeedNotification {
     return FeedNotification(
       id: row['id'] as String,
       actorId: actorId,
-      actorName: name.isEmpty ? 'A Vitrax user' : name,
+      actorName: row['type'] == 'announcement' ? 'Vitrax Admin' : (name.isEmpty ? 'A Vitrax user' : name),
       actorAvatarUrl: p?['avatar_url'] as String?,
       type: row['type'] as String,
       postKind: row['post_kind'] as String,

@@ -38,7 +38,9 @@ class NotificationRouter {
   static Future<void> openNotification(FeedNotification n, {FeedItem? known}) async {
     final nav = rootNavigatorKey.currentState;
     if (nav == null) return;
-    if (n.isBadge) {
+    if (n.isAnnouncement) {
+      await nav.push(MaterialPageRoute(builder: (_) => ChallengeDetailScreen(challengeId: n.postId)));
+    } else if (n.isBadge) {
       await nav.push(MaterialPageRoute(builder: (_) => const ProfileScreen()));
     } else if (n.isRoute) {
       await nav.push(MaterialPageRoute(builder: (_) => const RoutesScreen()));
