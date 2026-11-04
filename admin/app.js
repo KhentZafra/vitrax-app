@@ -426,7 +426,7 @@
     const paid = new Set((pays || []).map((p) => p.winner_user_id));
     const prize = ch?.prize_amount > 0;
     openModal(`<h2 style="margin-top:0">${esc(ch?.title || 'Challenge')}</h2>
-      <p class="muted">${(parts || []).length} participant(s)${prize ? ` · prize ₱${Number(ch.prize_amount).toLocaleString()}` : ''}. The winner is decided in the app from shared activities; use “Mark paid” only after you have sent the GCash prize.</p>
+      <p class="muted">${(parts || []).length} participant(s)${prize ? ` · prize ₱${Number(ch.prize_amount).toLocaleString()}` : ''}. The winner is decided in the app from shared activities. The challenge creator sends the prize by GCash and marks it paid in the app. Use “Mark paid” here only as an admin override, after you have verified the payment.</p>
       ${table([
         { h: 'Participant', f: (p) => who(p.user_id) },
         { h: 'Finished', f: (p) => (p.completed_at ? fmt(p.completed_at) : '—') },
@@ -611,7 +611,7 @@
     participants: (id) => showParticipants(id),
     'mark-paid': async (id, btn) => {
       const user = btn.dataset.user;
-      if (!(await ask(`Record that the prize was paid to ${nameOf(user)}.`, { title: 'Mark prize as paid?', okText: 'Mark paid' }))) return;
+      if (!(await ask(`Admin override: record that the creator already paid the prize to ${nameOf(user)}. Only do this after you have verified the payment.`, { title: 'Mark prize as paid?', okText: 'Mark paid' }))) return;
       const { error } = await sb.from('challenge_prize_payments').insert({ challenge_id: id, winner_user_id: user, marked_paid_by: me.id });
       if (error) return fail(error, 'Could not mark paid');
       toast('Marked as paid.'); showParticipants(id);
