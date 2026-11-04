@@ -1,0 +1,16 @@
+.wordmark { display: inline-flex; align-items: center; gap: 10px; }
+.wordmark__mark { height: 30px; width: auto; }
+.wordmark__text {
+  font-family: var(--f-display); font-weight: 900; font-stretch: 125%;
+  letter-spacing: 0.16em; font-size: 17px;
+}
+
+.app-icon {
+  width: var(--s); height: var(--s); flex: none;
+  display: grid; place-items: center;
+  border-radius: calc(var(--s) * 0.24);
+  background: radial-gradient(120% 120% at 30% 20%, #0f1d38, #04070f 70%);
+  border: 1px solid #1c2b4a;
+  box-shadow: 0 18px 40px -16px rgba(0, 0, 0, 0.8);
+}
+.app-icon img { width: 78%; height: auto; }

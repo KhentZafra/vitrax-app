@@ -77,7 +77,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     if (!mounted) return;
     setState(() => _sending = false);
     if (!ok) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't post your comment. Try again.")));
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text("Couldn't post your comment. Try again.")));
       return;
     }
     _controller.clear();
@@ -103,7 +103,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     final ok = await FeedCommentService.delete(c.id);
     if (!mounted) return;
     if (!ok) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't delete the comment.")));
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text("Couldn't delete the comment.")));
       return;
     }
     if (_replyingTo?.id == c.id) setState(() => _replyingTo = null);

@@ -199,6 +199,16 @@ class ChallengeWinner {
   final String? gcashQrUrl;
   final bool prizePaid;
 
+  /// Storage path of the creator's proof-of-payment screenshot (private).
+  final String? proofPath;
+
+  /// When the creator marked the prize paid, and when the winner confirmed.
+  final DateTime? markedPaidAt;
+  final DateTime? confirmedAt;
+
+  /// The winner reported "I did not receive it" and an admin has not ruled yet.
+  final bool disputed;
+
   ChallengeWinner({
     required this.userId,
     required this.name,
@@ -206,5 +216,19 @@ class ChallengeWinner {
     required this.progress,
     this.gcashQrUrl,
     required this.prizePaid,
+    this.proofPath,
+    this.markedPaidAt,
+    this.confirmedAt,
+    this.disputed = false,
   });
+
+  /// A paid prize counts as confirmed when the winner confirmed it, or when
+  /// 7 days passed with no dispute.
+  bool get confirmed =>
+      prizePaid &&
+      !disputed &&
+      (confirmedAt != null || (markedPaidAt != null && DateTime.now().difference(markedPaidAt!).inDays >= 7));
+
+  /// Marked paid by the creator, waiting for the winner to confirm.
+  bool get awaitingConfirm => prizePaid && !disputed && !confirmed;
 }

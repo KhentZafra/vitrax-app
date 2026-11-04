@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/achievement.dart';
 import '../widgets/badge_medal.dart';
+import '../widgets/confetti_burst.dart';
 
 /// Key the root MaterialApp uses, so a badge celebration can pop up from
 /// anywhere (after a ride is saved, a challenge is completed, etc.) without
@@ -279,7 +280,10 @@ class _BadgeEarnedDialogState extends State<_BadgeEarnedDialog> with SingleTicke
     final color = widget.tier.color;
     final tierIdx = widget.tier.index - 1; // bronze = 0
 
-    return Center(
+    return Stack(
+      children: [
+        Positioned.fill(child: ConfettiBurst(colors: [color, Colors.white, color.withValues(alpha: .7), const Color(0xffffd54a), const Color(0xff27c4ff)], count: 90)),
+        Center(
       child: Material(
         color: Colors.transparent,
         child: Container(
@@ -344,6 +348,8 @@ class _BadgeEarnedDialogState extends State<_BadgeEarnedDialog> with SingleTicke
           ),
         ),
       ),
+    ),
+      ],
     );
   }
 }

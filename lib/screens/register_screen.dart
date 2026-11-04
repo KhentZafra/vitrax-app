@@ -267,7 +267,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       valid = false;
     }
     if (selectedActivities.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
         const SnackBar(content: Text("Please select Cyclist, Runner, or both.")),
       );
       return;
@@ -278,7 +278,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
     if (!agreedToTerms) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
         const SnackBar(content: Text("Please agree to the Privacy Policy and Terms to continue.")),
       );
       return;
@@ -290,7 +290,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (!isConnected) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
         const SnackBar(
           content: Text("No Internet connection, Please connect it to the internet"),
           backgroundColor: Colors.red,
@@ -380,7 +380,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         } else {
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(SnackBar(content: Text(e.message)));
+          )..clearSnackBars()..showSnackBar(SnackBar(content: Text(e.message)));
         }
       });
     } catch (e, stackTrace) {
@@ -390,7 +390,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
         const SnackBar(
           content: Text(
             "Unable to connect to the server. Please try again later.",

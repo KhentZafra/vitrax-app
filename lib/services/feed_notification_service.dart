@@ -4,14 +4,17 @@ import '../models/feed_notification.dart';
 class FeedNotificationService {
   static final _supabase = Supabase.instance.client;
 
-  static Future<List<FeedNotification>> fetch() async {
+  /// Types that belong to the Community feed. Everything else (route likes,
+  /// retraces, badges) only shows in the general Home bell.
+  static const communityTypes = ['like', 'comment', 'reply', 'reshare'];
+
+  static Future<List<FeedNotification>> fetch({bool communityOnly = false}) async {
     final me = _supabase.auth.currentUser?.id;
     if (me == null) return [];
     try {
-      final rows = await _supabase
-          .from('feed_notifications')
-          .select()
-          .eq('user_id', me)
+      var q = _supabase.from('feed_notifications').select().eq('user_id', me);
+      if (communityOnly) q = q.inFilter('type', communityTypes);
+      final rows = await q
           .order('created_at', ascending: false)
           .limit(100);
       final list = (rows as List).cast<Map<String, dynamic>>();
@@ -27,22 +30,26 @@ class FeedNotificationService {
     }
   }
 
-  static Future<int> unreadCount() async {
+  static Future<int> unreadCount({bool communityOnly = false}) async {
     final me = _supabase.auth.currentUser?.id;
     if (me == null) return 0;
     try {
-      final rows = await _supabase.from('feed_notifications').select('id').eq('user_id', me).eq('is_read', false);
+      var q = _supabase.from('feed_notifications').select('id').eq('user_id', me).eq('is_read', false);
+      if (communityOnly) q = q.inFilter('type', communityTypes);
+      final rows = await q;
       return (rows as List).length;
     } catch (_) {
       return 0;
     }
   }
 
-  static Future<void> markAllRead() async {
+  static Future<void> markAllRead({bool communityOnly = false}) async {
     final me = _supabase.auth.currentUser?.id;
     if (me == null) return;
     try {
-      await _supabase.from('feed_notifications').update({'is_read': true}).eq('user_id', me).eq('is_read', false);
+      var q = _supabase.from('feed_notifications').update({'is_read': true}).eq('user_id', me).eq('is_read', false);
+      if (communityOnly) q = q.inFilter('type', communityTypes);
+      await q;
     } catch (e) {
       // ignore: avoid_print
       print('FeedNotificationService.markAllRead failed: $e');

@@ -26,7 +26,7 @@ class NotificationRouter {
     if (item == null) {
       final ctx = rootNavigatorKey.currentState?.overlay?.context;
       if (ctx != null && ctx.mounted) {
-        ScaffoldMessenger.maybeOf(ctx)?.showSnackBar(const SnackBar(content: Text('That post is no longer available.')));
+        ScaffoldMessenger.maybeOf(ctx)?..clearSnackBars()..showSnackBar(const SnackBar(content: Text('That post is no longer available.')));
       }
       return;
     }

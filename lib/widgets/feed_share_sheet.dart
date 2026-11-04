@@ -84,7 +84,7 @@ class _ShareOptions extends StatelessWidget {
     final ok = await CommunityFeedService.reshare(item, note: text);
     if (sheetContext.mounted) Navigator.pop(sheetContext);
     messenger.clearSnackBars();
-    messenger.showSnackBar(SnackBar(content: Text(ok ? 'Reshared to the community.' : "Couldn't reshare this post.")));
+    messenger..clearSnackBars()..showSnackBar(SnackBar(content: Text(ok ? 'Reshared to the community.' : "Couldn't reshare this post.")));
     if (ok) onReshared();
   }
 
@@ -168,7 +168,7 @@ class _ChatPickerState extends State<_ChatPicker> {
     final messenger = ScaffoldMessenger.of(context);
     Navigator.pop(context);
     messenger.clearSnackBars();
-    messenger.showSnackBar(SnackBar(content: Text(ok ? 'Sent to ${c.otherUserName}.' : "Couldn't send. They may have blocked messages.")));
+    messenger..clearSnackBars()..showSnackBar(SnackBar(content: Text(ok ? 'Sent to ${c.otherUserName}.' : "Couldn't send. They may have blocked messages.")));
   }
 
   @override

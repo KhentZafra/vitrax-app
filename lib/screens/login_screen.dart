@@ -45,7 +45,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final email = emailController.text.trim();
       final wait = EmailCodeCooldown.remaining(email);
       if (wait > 0) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please wait ${wait}s before requesting another code.')));
+        ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(SnackBar(content: Text('Please wait ${wait}s before requesting another code.')));
         return;
       }
       await supabase.auth.resend(type: OtpType.signup, email: email);
@@ -64,7 +64,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
         const SnackBar(
           content: Text("Couldn't resend the email. Try again shortly."),
         ),
@@ -89,7 +89,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
         const SnackBar(
           content: Text("No Internet connection, Please connect it to the internet"),
           backgroundColor: Colors.red,
@@ -127,7 +127,7 @@ class _LoginScreenState extends State<LoginScreen> {
         } else if (message.contains("not confirmed")) {
           emailError = "Please confirm your email first, check your inbox.";
           ScaffoldMessenger.of(context).clearSnackBars();
-          ScaffoldMessenger.of(context).showSnackBar(
+          ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
             SnackBar(
               content: const Text("Your email isn't confirmed yet."),
               action: SnackBarAction(
@@ -145,7 +145,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
         const SnackBar(
           content: Text(
             "Unable to connect to the server. Please try again later.",

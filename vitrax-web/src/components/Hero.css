@@ -1,0 +1,80 @@
+.hero { position: relative; overflow: hidden; border-bottom: 1px solid var(--rule); }
+.hero__contours { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.hero::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(50% 60% at 78% 42%, rgba(43, 140, 255, 0.1), transparent 70%),
+    linear-gradient(to bottom, transparent 72%, var(--night));
+}
+.hero__inner {
+  position: relative; z-index: 1;
+  display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 48px; align-items: center; padding-block: 72px 88px;
+}
+.hero__tag {
+  display: inline-flex; align-items: center; gap: 10px; padding: 6px 14px 6px 8px;
+  border: 1px solid var(--rule); border-radius: 999px; font-size: 14px; color: var(--mute);
+  background: rgba(10, 19, 37, 0.6);
+}
+.hero__tag b {
+  font-family: var(--f-data); font-size: 11px; letter-spacing: 0.1em; font-weight: 500;
+  background: rgba(43, 140, 255, 0.16); color: var(--volt-2); padding: 3px 8px; border-radius: 999px;
+}
+.hero__title {
+  margin: 22px 0 18px; font-size: clamp(36px, 4.6vw, 64px); line-height: 0.96;
+  font-weight: 850; font-stretch: 118%; letter-spacing: -0.03em;
+}
+.hero__line { display: block; overflow: hidden; padding-bottom: 0.06em; }
+.hero__line > span { display: inline-block; }
+.hero__title em { font-style: normal; color: var(--volt); }
+.hero__strike { position: relative; color: var(--mute); }
+.hero__strike i {
+  position: absolute; left: -2%; right: -2%; top: 54%; height: 0.09em;
+  background: var(--amber); transform-origin: left;
+}
+.hero__ctas { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 34px; }
+.hero__meta { margin-top: 22px; font-size: 14px; color: var(--mute); display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.hero__meta span { display: inline-flex; align-items: center; gap: 7px; }
+.hero__meta i { width: 6px; height: 6px; border-radius: 50%; background: var(--go); }
+.hero__meta b { color: var(--ink); }
+.hero__stage { display: flex; justify-content: center; }
+
+/* splash + hero phone app */
+.splash {
+  position: absolute; inset: 0; z-index: 2; background: #060c19;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+}
+.splash__name { font-family: var(--f-display); font-weight: 900; font-stretch: 125%; letter-spacing: 0.2em; font-size: 18px; }
+.splash__status { font-size: 11px; color: var(--mute); }
+.splash__bar { width: 120px; height: 3px; border-radius: 3px; background: #13203a; overflow: hidden; }
+.splash__bar i { display: block; height: 100%; background: var(--volt); animation: splash-load 1.5s 0.2s var(--ease) both; }
+@keyframes splash-load { from { width: 0; } to { width: 100%; } }
+
+.phone-brand { font-family: var(--f-display); font-weight: 900; font-stretch: 125%; letter-spacing: 0.16em; font-size: 14px; color: var(--ink); }
+.signal { display: inline-flex; align-items: center; gap: 6px; font-family: var(--f-data); font-size: 10.5px; color: var(--mute); transition: color 0.3s; }
+.signal__bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 10px; }
+.signal__bars i { width: 3px; background: currentColor; border-radius: 1px; transition: opacity 0.3s; }
+.signal__bars i:nth-child(1) { height: 3px; }
+.signal__bars i:nth-child(2) { height: 6px; }
+.signal__bars i:nth-child(3) { height: 10px; }
+.signal--offline { color: var(--amber); }
+.signal--offline .signal__bars i:nth-child(n + 2) { opacity: 0.2; }
+.signal--online { color: var(--go); }
+.rider-pulse { animation: pulse 1.6s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes pulse { 0%, 100% { transform: scale(0.7); } 50% { transform: scale(1.15); } }
+.hazard-slot { height: 62px; flex: none; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; flex: none; }
+.stat { border: 1px solid var(--rule); border-radius: 14px; padding: 12px 6px 10px; text-align: center; background: var(--deck-2); }
+.stat b { display: block; font-size: 19px; font-weight: 700; letter-spacing: -0.02em; }
+.stat small { font-size: 10.5px; color: var(--mute); text-transform: uppercase; letter-spacing: 0.08em; }
+.elev { flex: none; height: 40px; }
+.elev svg { width: 100%; height: 100%; }
+
+@media (max-width: 980px) {
+  .hero__inner { grid-template-columns: 1fr; padding-block: 48px 64px; }
+}
+@media (max-width: 520px) {
+  .hero__title { font-stretch: 104%; }
+  .hero__ctas .btn { flex: 1 1 100%; }
+  .hero .phone { width: 286px; }
+}

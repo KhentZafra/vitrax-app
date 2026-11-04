@@ -1,0 +1,24 @@
+.install-wrap { position: relative; }
+.install { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; margin: 0; padding: 0; list-style: none; }
+.install__line { position: absolute; left: 23px; right: 23px; top: 23px; height: 1px; background: var(--rule); }
+.install__line i { position: absolute; inset: -0.5px 0; background: var(--volt); transform-origin: left; }
+.install__step { position: relative; display: grid; gap: 12px; align-content: start; }
+.install__dot {
+  width: 46px; height: 46px; border-radius: 50%; display: grid; place-content: center;
+  border: 1px solid var(--rule); background: var(--night);
+  font-family: var(--f-data); font-size: 14px; color: var(--mute);
+  transition: border-color 0.4s, color 0.4s, background 0.4s, transform 0.4s var(--ease);
+}
+.install__step.is-lit .install__dot { border-color: var(--volt); background: var(--volt); color: #fff; transform: scale(1.06); }
+.install__step h3 { font-size: 19px; font-weight: 700; font-stretch: 105%; }
+.install__step p { color: var(--mute); font-size: 15px; }
+.install__step b { color: var(--ink); font-weight: 600; }
+.install__cta { margin-top: 48px; }
+
+@media (max-width: 980px) {
+  .install { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 36px; }
+  .install__line { display: none; }
+}
+@media (max-width: 520px) {
+  .install { grid-template-columns: 1fr; }
+}

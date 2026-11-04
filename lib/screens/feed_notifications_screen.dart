@@ -18,7 +18,10 @@ import '../widgets/user_avatar.dart';
 class FeedNotificationsScreen extends StatefulWidget {
   final List<FeedItem> items;
   final void Function(FeedItem item, int count) onCommentCount;
-  const FeedNotificationsScreen({super.key, required this.items, required this.onCommentCount});
+  /// true = opened from Community: only likes, comments, replies, reshares.
+  /// false = the general Home bell: everything.
+  final bool communityOnly;
+  const FeedNotificationsScreen({super.key, required this.items, required this.onCommentCount, this.communityOnly = false});
 
   @override
   State<FeedNotificationsScreen> createState() => _FeedNotificationsScreenState();
@@ -53,7 +56,7 @@ class _FeedNotificationsScreenState extends State<FeedNotificationsScreen> {
   }
 
   Future<void> _load() async {
-    final list = await FeedNotificationService.fetch();
+    final list = await FeedNotificationService.fetch(communityOnly: widget.communityOnly);
     if (!mounted) return;
     setState(() {
       _list = list;
@@ -61,7 +64,7 @@ class _FeedNotificationsScreenState extends State<FeedNotificationsScreen> {
     });
     // Rows stay highlighted this visit (they were captured as unread),
     // but the bell badge clears.
-    await FeedNotificationService.markAllRead();
+    await FeedNotificationService.markAllRead(communityOnly: widget.communityOnly);
   }
 
   String _ago(DateTime d) {
@@ -113,7 +116,7 @@ class _FeedNotificationsScreenState extends State<FeedNotificationsScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xff050505),
         foregroundColor: Colors.white,
-        title: const Text('Notifications'),
+        title: Text(widget.communityOnly ? 'Community Notifications' : 'Notifications'),
       ),
       body: _loading
           ? const ListSkeleton()

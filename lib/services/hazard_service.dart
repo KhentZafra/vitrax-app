@@ -1,7 +1,9 @@
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'badge_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 import '../models/hazard_report.dart';
 
 /// Supabase calls for hazard reports: reporting, undoing, linking to the
@@ -29,6 +31,49 @@ class HazardService {
     } catch (e) {
       lastReportRateLimited = e.toString().contains('hazard_rate_limit');
       return null;
+    }
+  }
+
+  // ---------------------------------------------------------------- photos
+  static const maxPhotos = 5;
+  static const _photoBucket = 'hazard-photos';
+
+  /// Uploads [files] as photos of [hazardId] (stored under the user's folder, then the hazard's) and
+  /// returns how many were saved. Stops quietly at the 5-photo limit.
+  static Future<int> uploadPhotos(String hazardId, List<File> files) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return 0;
+    var saved = 0;
+    for (final file in files) {
+      try {
+        final path = '${user.id}/$hazardId/${const Uuid().v4()}.jpg';
+        await _supabase.storage.from(_photoBucket).upload(path, file, fileOptions: const FileOptions(contentType: 'image/jpeg'));
+        await _supabase.from('hazard_photos').insert({'hazard_id': hazardId, 'user_id': user.id, 'path': path});
+        saved++;
+      } catch (e) {
+        // ignore: avoid_print
+        print('HazardService.uploadPhotos failed: $e');
+        if (e.toString().contains('at most 5')) break;
+      }
+    }
+    return saved;
+  }
+
+  /// Short-lived viewing links for a hazard's photos (empty if none).
+  static Future<List<String>> photoUrls(String hazardId) async {
+    try {
+      final rows = await _supabase.from('hazard_photos').select('path').eq('hazard_id', hazardId).order('created_at');
+      final paths = (rows as List).map((r) => (r as Map<String, dynamic>)['path'] as String).toList();
+      if (paths.isEmpty) return [];
+      final urls = <String>[];
+      for (final path in paths) {
+        try {
+          urls.add(await _supabase.storage.from(_photoBucket).createSignedUrl(path, 3600));
+        } catch (_) {}
+      }
+      return urls;
+    } catch (_) {
+      return [];
     }
   }
 

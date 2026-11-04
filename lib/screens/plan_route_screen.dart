@@ -141,7 +141,7 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
 
     if (route == null) {
       ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
         SnackBar(
           content: Text(
             _safest
@@ -281,7 +281,7 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
       if (!ok) return;
       if (!await Geolocator.isLocationServiceEnabled()) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
           SnackBar(
             content: const Text('Location services are turned off.'),
             action: SnackBarAction(label: 'Open Settings', onPressed: Geolocator.openLocationSettings),
@@ -302,7 +302,7 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
       _loadNearbyHazards(here);
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't get your location. Check your phone's location settings.")));
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text("Couldn't get your location. Check your phone's location settings.")));
     } finally {
       if (mounted) setState(() => _locating = false);
     }

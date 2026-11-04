@@ -35,14 +35,56 @@ class OfflineHazardQueue {
 
   static Future<void> _write(String key, Map<String, dynamic> json) async => (await _file(key)).writeAsString(jsonEncode(json));
 
-  /// Saves a hazard that could not be uploaded. Returns its key.
-  static Future<String> enqueueUnsent(HazardReport h) async {
+  /// Copies picked photos into the app's own folder (the picker's temp files
+  /// can disappear) and returns the new paths.
+  static Future<List<String>> _keepPhotos(List<File> files) async {
+    final docs = await getApplicationDocumentsDirectory();
+    final dir = Directory('${docs.path}/pending_hazard_photos');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    final out = <String>[];
+    for (final f in files) {
+      try {
+        final copy = await f.copy('${dir.path}/${_uuid.v4()}.jpg');
+        out.add(copy.path);
+      } catch (_) {}
+    }
+    return out;
+  }
+
+  /// Adds photos to a hazard that is still waiting to be uploaded.
+  static Future<void> addPhotos(String key, List<File> files) async {
+    final f = await _file(key);
+    if (!await f.exists()) return;
+    final json = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
+    final photos = ((json['photos'] as List?) ?? const []).cast<String>().toList()..addAll(await _keepPhotos(files));
+    json['photos'] = photos;
+    await f.writeAsString(jsonEncode(json));
+  }
+
+  /// Photos for a hazard that is already uploaded but whose photos failed to
+  /// upload (no connection). Only the photos are retried; nothing is shared.
+  static Future<void> enqueuePhotosOnly(String hazardId, List<File> files) async {
     final key = _uuid.v4();
     await _write(key, {
+      'hazard_id': hazardId,
+      'photos': await _keepPhotos(files),
+      'photos_only': true,
+    });
+  }
+
+  /// Saves a hazard that could not be uploaded. Returns its key.
+  static Future<String> enqueueUnsent(HazardReport h, {List<File> photos = const []}) async {
+    final key = _uuid.v4();
+    await _write(key, {
+      'photos': await _keepPhotos(photos),
       'type': h.type.value,
       'lat': h.position.latitude,
       'lng': h.position.longitude,
       'reported_at': h.reportedAt.toIso8601String(),
+      'end_lat': h.endPosition?.latitude,
+      'end_lng': h.endPosition?.longitude,
+      'length_m': h.lengthMeters,
+      'auto': h.autoDetected,
       'hazard_id': null,
       'activity_ref': null,
       'shared': false,
@@ -120,6 +162,11 @@ class OfflineHazardQueue {
                 type: HazardTypeX.fromString(json['type'] as String),
                 position: LatLng((json['lat'] as num).toDouble(), (json['lng'] as num).toDouble()),
                 reportedAt: DateTime.parse(json['reported_at'] as String),
+                endPosition: (json['end_lat'] is num && json['end_lng'] is num)
+                    ? LatLng((json['end_lat'] as num).toDouble(), (json['end_lng'] as num).toDouble())
+                    : null,
+                lengthMeters: (json['length_m'] as num?)?.toDouble(),
+                autoDetected: json['auto'] == true,
               ),
               activityId: realActivityId,
             );
@@ -128,6 +175,41 @@ class OfflineHazardQueue {
             json['hazard_id'] = hazardId;
             json['linked'] = realActivityId != null;
             await f.writeAsString(jsonEncode(json));
+          }
+
+          // Photos waiting to be uploaded for this hazard.
+          var photosPending = false;
+          final waiting = ((json['photos'] as List?) ?? const []).cast<String>();
+          if (waiting.isNotEmpty) {
+            final remaining = <String>[];
+            for (final path in waiting) {
+              final photo = File(path);
+              if (!await photo.exists()) continue;
+              if (await HazardService.uploadPhotos(hazardId, [photo]) > 0) {
+                await photo.delete();
+              } else {
+                remaining.add(path);
+              }
+            }
+            // Give up on a photo after 8 failed rounds so it cannot block this
+            // hazard forever (for example when the hazard already has 5 photos).
+            final tries = ((json['photo_tries'] as num?) ?? 0).toInt() + (remaining.isEmpty ? 0 : 1);
+            json['photo_tries'] = tries;
+            if (tries >= 8) {
+              for (final path in remaining) {
+                try {
+                  await File(path).delete();
+                } catch (_) {}
+              }
+              remaining.clear();
+            }
+            json['photos'] = remaining;
+            await f.writeAsString(jsonEncode(json));
+            photosPending = remaining.isNotEmpty;
+          }
+          if (json['photos_only'] == true) {
+            if (!photosPending) await f.delete();
+            continue;
           }
 
           if (json['shared'] != true) {
@@ -143,7 +225,7 @@ class OfflineHazardQueue {
           }
 
           // Done once shared, and linked if it belongs to an activity that has synced.
-          if (json['shared'] == true && (ref == null || json['linked'] == true)) {
+          if (!photosPending && json['shared'] == true && (ref == null || json['linked'] == true)) {
             await f.delete();
           }
         } catch (_) {

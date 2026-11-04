@@ -14,7 +14,7 @@ class LegalSection {
 const List<LegalSection> kPrivacyPolicy = [
   LegalSection('Who we are', [
     'VITRAX is a mobile application for cyclists and runners, built as a capstone project by Khent A. Zafra, John Aaron L. Barril, and Trisha Mae D. Caiyas of Cristal e-College. In this policy, "we" and "us" mean these researchers.',
-    'For questions about your data, contact us at paseo@vitrax.com.',
+    'For questions about your data, contact us at paseo0396@gmail.com.',
   ]),
   LegalSection('What we collect', [
     'Account details: your name, email address, activity type (cyclist or runner), and profile photo.',
@@ -47,7 +47,7 @@ const List<LegalSection> kPrivacyPolicy = [
   ]),
   LegalSection('Your rights', [
     'Under the Data Privacy Act of 2012 (Republic Act 10173) you have the right to be informed, to access your data, to correct it (you can edit your profile in the app), to object or withdraw your consent, to have your data deleted, and to file a complaint with the National Privacy Commission.',
-    'To use a right that the app does not cover, contact us at paseo@vitrax.com.',
+    'To use a right that the app does not cover, contact us at paseo0396@gmail.com.',
   ]),
   LegalSection('Security', [
     'Data travels over encrypted connections, and the database uses access rules so users can only see and change what they are allowed to. No system is perfectly secure, so please use a strong password and keep it private.',
@@ -93,6 +93,6 @@ const List<LegalSection> kTermsOfUse = [
     'To the extent allowed by law, the researchers are not liable for injuries, losses, or damages from using the app or relying on user-submitted information.',
   ]),
   LegalSection('Contact', [
-    'Questions about these terms: paseo@vitrax.com.',
+    'Questions about these terms: paseo0396@gmail.com.',
   ]),
 ];

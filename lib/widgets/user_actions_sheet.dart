@@ -79,7 +79,7 @@ class _UserActionsSheetState extends State<_UserActionsSheet> {
   void _snack(String message) {
     if (!_ctx.mounted) return;
     ScaffoldMessenger.of(_ctx).clearSnackBars();
-    ScaffoldMessenger.of(_ctx).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(_ctx)..clearSnackBars()..showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _viewProfile() {

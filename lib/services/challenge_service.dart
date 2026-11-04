@@ -91,6 +91,9 @@ class ChallengeService {
     if (m.contains('socketexception') || m.contains('failed host lookup') || m.contains('clientexception') || m.contains('timeout')) {
       return 'No internet connection. Check your connection and try again.';
     }
+    if (m.contains('unpaid prize')) {
+      return 'You have an unpaid prize under dispute. Settle it before creating a new prize challenge.';
+    }
     if (m.contains('date') && (m.contains('check') || m.contains('constraint'))) {
       return 'The end date must be after the start date.';
     }
@@ -365,6 +368,7 @@ class ChallengeService {
 
       final paymentRows = await _supabase.from('challenge_prize_payments').select('winner_user_id').eq('challenge_id', challenge.id);
       final paidUserIds = (paymentRows as List).cast<Map<String, dynamic>>().map((r) => r['winner_user_id'] as String).toSet();
+      final px = await _fetchPayExtras(challenge.id);
 
       ChallengeWinner? best;
       for (final p in participants) {
@@ -385,6 +389,10 @@ class ChallengeService {
             progress: progress,
             gcashQrUrl: p['gcash_qr_url'] as String?,
             prizePaid: paidUserIds.contains(userId),
+            proofPath: px.proofs[userId],
+            markedPaidAt: px.marked[userId],
+            confirmedAt: px.confirmed[userId],
+            disputed: px.disputed.contains(userId),
           );
         }
       }
@@ -394,6 +402,49 @@ class ChallengeService {
       // ignore: avoid_print
       print('ChallengeService.determineWinner failed: $e');
       return null;
+    }
+  }
+
+  /// My challenge record for the profile: how many I joined, finished, and
+  /// won. A cash-prize challenge counts the official winner; any other
+  /// ended challenge counts the best finisher (highest result, or the
+  /// fastest time on a route challenge).
+  static Future<({int joined, int completed, int won})> fetchMyRecord() async {
+    final me = _supabase.auth.currentUser?.id;
+    if (me == null) return (joined: 0, completed: 0, won: 0);
+    try {
+      final all = await fetchChallenges();
+      final mine = all.where((c) => c.joinedByMe).toList();
+      final completed = mine.where((c) => c.iCompletedIt).length;
+      final ended = mine.where((c) => c.hasEnded).toList();
+      final results = await Future.wait(ended.map((c) => _isWinner(c, me)));
+      return (joined: mine.length, completed: completed, won: results.where((w) => w).length);
+    } catch (e) {
+      // ignore: avoid_print
+      print('ChallengeService.fetchMyRecord failed: $e');
+      return (joined: 0, completed: 0, won: 0);
+    }
+  }
+
+  static Future<bool> _isWinner(Challenge c, String me) async {
+    try {
+      if (c.hasPrize) {
+        final w = await determineWinner(c);
+        return w?.userId == me;
+      }
+      if (c.isRouteChallenge) {
+        final board = await fetchRouteLeaderboard(c);
+        return board.isNotEmpty && board.first.userId == me;
+      }
+      final finished = (await fetchStandings(c.id)).where((s) => s.isCompleted).toList()
+        ..sort((a, b) {
+          final byResult = b.progressValue.compareTo(a.progressValue);
+          if (byResult != 0) return byResult;
+          return a.completedAt!.compareTo(b.completedAt!);
+        });
+      return finished.isNotEmpty && finished.first.userId == me;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -427,6 +478,7 @@ class ChallengeService {
 
       final paymentRows = await _supabase.from('challenge_prize_payments').select('winner_user_id').eq('challenge_id', challenge.id);
       final paidUserIds = (paymentRows as List).cast<Map<String, dynamic>>().map((r) => r['winner_user_id'] as String).toSet();
+      final px = await _fetchPayExtras(challenge.id);
 
       ChallengeWinner? best;
       int? bestSeconds;
@@ -450,6 +502,10 @@ class ChallengeService {
             progress: seconds.toDouble(),
             gcashQrUrl: p['gcash_qr_url'] as String?,
             prizePaid: paidUserIds.contains(userId),
+            proofPath: px.proofs[userId],
+            markedPaidAt: px.marked[userId],
+            confirmedAt: px.confirmed[userId],
+            disputed: px.disputed.contains(userId),
           );
         }
       }
@@ -467,7 +523,7 @@ class ChallengeService {
   /// successfully (see 016_challenge_prizes.sql) — the app doesn't need
   /// to duplicate that check client-side, but calling as a non-creator
   /// will simply fail.
-  static Future<bool> markPrizePaid({required String challengeId, required String winnerUserId}) async {
+  static Future<bool> markPrizePaid({required String challengeId, required String winnerUserId, String? proofPath}) async {
     final user = _supabase.auth.currentUser;
     if (user == null) return false;
     try {
@@ -475,11 +531,102 @@ class ChallengeService {
         'challenge_id': challengeId,
         'winner_user_id': winnerUserId,
         'marked_paid_by': user.id,
+        'proof_url': ?proofPath,
       });
       return true;
     } catch (e) {
       // ignore: avoid_print
       print('ChallengeService.markPrizePaid failed: $e');
+      return false;
+    }
+  }
+
+  /// Uploads the creator's proof-of-payment screenshot (a GCash receipt)
+  /// to a private bucket and returns its storage path, or null on failure.
+  static Future<String?> uploadPrizeProof({required String challengeId, required File image}) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return null;
+    try {
+      final path = '${user.id}/$challengeId.jpg';
+      await _supabase.storage.from('prize-proofs').upload(
+            path,
+            image,
+            fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: true),
+          );
+      return path;
+    } catch (e) {
+      // ignore: avoid_print
+      print('ChallengeService.uploadPrizeProof failed: $e');
+      return null;
+    }
+  }
+
+  /// Short-lived link to view a proof-of-payment image. Only the creator,
+  /// the winner and admins are allowed to create one (storage rules).
+  static Future<String?> signedProofUrl(String path) async {
+    try {
+      return await _supabase.storage.from('prize-proofs').createSignedUrl(path, 3600);
+    } catch (e) {
+      // ignore: avoid_print
+      print('ChallengeService.signedProofUrl failed: $e');
+      return null;
+    }
+  }
+
+  /// Extra payment details per winner (proof, when marked, when confirmed,
+  /// open disputes). Kept separate and tolerant so the winner still loads if
+  /// the newer columns or the disputes table have not been added yet.
+  static Future<({Map<String, String> proofs, Map<String, DateTime> marked, Map<String, DateTime> confirmed, Set<String> disputed})> _fetchPayExtras(String challengeId) async {
+    final proofs = <String, String>{};
+    final marked = <String, DateTime>{};
+    final confirmed = <String, DateTime>{};
+    final disputed = <String>{};
+    try {
+      final rows = await _supabase.from('challenge_prize_payments').select('winner_user_id, proof_url').eq('challenge_id', challengeId);
+      for (final r in (rows as List).cast<Map<String, dynamic>>()) {
+        final proof = r['proof_url'] as String?;
+        if (proof != null && proof.isNotEmpty) proofs[r['winner_user_id'] as String] = proof;
+      }
+    } catch (_) {}
+    try {
+      final rows = await _supabase.from('challenge_prize_payments').select('winner_user_id, marked_paid_at, confirmed_at').eq('challenge_id', challengeId);
+      for (final r in (rows as List).cast<Map<String, dynamic>>()) {
+        final id = r['winner_user_id'] as String;
+        final m = r['marked_paid_at'] as String?;
+        final c = r['confirmed_at'] as String?;
+        if (m != null) marked[id] = DateTime.parse(m).toLocal();
+        if (c != null) confirmed[id] = DateTime.parse(c).toLocal();
+      }
+    } catch (_) {}
+    try {
+      final rows = await _supabase.from('prize_disputes').select('winner_user_id').eq('challenge_id', challengeId).eq('status', 'open');
+      for (final r in (rows as List).cast<Map<String, dynamic>>()) {
+        disputed.add(r['winner_user_id'] as String);
+      }
+    } catch (_) {}
+    return (proofs: proofs, marked: marked, confirmed: confirmed, disputed: disputed);
+  }
+
+  /// Winner: "I received the prize".
+  static Future<bool> confirmPrizeReceipt(String challengeId) async {
+    try {
+      final r = await _supabase.rpc('confirm_prize_receipt', params: {'p_challenge': challengeId});
+      return r == true;
+    } catch (e) {
+      // ignore: avoid_print
+      print('ChallengeService.confirmPrizeReceipt failed: $e');
+      return false;
+    }
+  }
+
+  /// Winner: "I did not receive it". An admin reviews it.
+  static Future<bool> disputePrize(String challengeId, {String? note}) async {
+    try {
+      final r = await _supabase.rpc('dispute_prize', params: {'p_challenge': challengeId, 'p_note': note});
+      return r == true;
+    } catch (e) {
+      // ignore: avoid_print
+      print('ChallengeService.disputePrize failed: $e');
       return false;
     }
   }

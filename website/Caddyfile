@@ -1,0 +1,16 @@
+# Replace yourdomain.example with your real domain (or yourname.duckdns.org).
+# Caddy gets and renews the free HTTPS certificate by itself.
+yourdomain.example {
+    root * /var/www/vitrax
+    encode gzip
+    file_server
+
+    @apk path *.apk
+    header @apk Content-Type application/vnd.android.package-archive
+    header @apk Content-Disposition "attachment; filename=vitrax.apk"
+
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+    }
+}

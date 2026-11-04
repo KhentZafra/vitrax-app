@@ -86,6 +86,13 @@ class HazardReport {
   final String? activityId;
   final bool shared;
 
+  /// Only for a "No Signal" stretch found automatically: where the signal
+  /// came back, how many meters were without signal, and that the app (not a
+  /// person) recorded it. [position] is where the signal was lost.
+  final LatLng? endPosition;
+  final double? lengthMeters;
+  final bool autoDetected;
+
   // Client-side display fields — not persisted on this row itself, only
   // populated when fetched alongside confirmation counts (see
   // HazardService.fetchClearStatus). Not part of toInsertMap/fromMap's
@@ -100,6 +107,9 @@ class HazardReport {
     required this.reportedAt,
     this.activityId,
     this.shared = false,
+    this.endPosition,
+    this.lengthMeters,
+    this.autoDetected = false,
     this.clearConfirmationCount = 0,
     this.confirmedClearByMe = false,
   });
@@ -112,6 +122,9 @@ class HazardReport {
       reportedAt: reportedAt,
       activityId: activityId ?? this.activityId,
       shared: shared ?? this.shared,
+      endPosition: endPosition,
+      lengthMeters: lengthMeters,
+      autoDetected: autoDetected,
       clearConfirmationCount: clearConfirmationCount ?? this.clearConfirmationCount,
       confirmedClearByMe: confirmedClearByMe ?? this.confirmedClearByMe,
     );
@@ -125,6 +138,10 @@ class HazardReport {
       'lat': position.latitude,
       'lng': position.longitude,
       'reported_at': reportedAt.toIso8601String(),
+      if (endPosition != null) 'end_lat': endPosition!.latitude,
+      if (endPosition != null) 'end_lng': endPosition!.longitude,
+      if (lengthMeters != null) 'length_m': lengthMeters,
+      if (autoDetected) 'auto_detected': true,
     };
   }
 
@@ -138,6 +155,11 @@ class HazardReport {
       reportedAt: DateTime.parse(map['reported_at'] as String),
       activityId: map['activity_id'] as String?,
       shared: map['shared'] as bool? ?? false,
+      endPosition: (map['end_lat'] is num && map['end_lng'] is num)
+          ? LatLng((map['end_lat'] as num).toDouble(), (map['end_lng'] as num).toDouble())
+          : null,
+      lengthMeters: (map['length_m'] as num?)?.toDouble(),
+      autoDetected: map['auto_detected'] as bool? ?? false,
     );
   }
 }

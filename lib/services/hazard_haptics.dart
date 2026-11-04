@@ -27,6 +27,18 @@ class HazardHaptics {
     await Future<void>.delayed(buzzDuration);
   }
 
+  /// Repeating buzz (0.7 s on, 0.5 s off) for the "Are you okay?" check-in,
+  /// until [cancel] is called. Not tied to speech.
+  static Future<void> startRepeating() async {
+    try {
+      if (await Vibration.hasVibrator()) {
+        await Vibration.vibrate(pattern: [0, 700, 500], repeat: 0);
+      } else {
+        await HapticFeedback.heavyImpact();
+      }
+    } catch (_) {}
+  }
+
   static Future<void> cancel() async {
     try {
       await Vibration.cancel();

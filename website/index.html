@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VITRAX - Ride and run smarter in Bohol</title>
+<meta name="description" content="VITRAX: offline GPS tracking and crowdsourced road-hazard alerts for cyclists and runners in Bohol. Free Android app.">
+<meta name="theme-color" content="#050912">
+<meta property="og:title" content="VITRAX - Ride and run smarter in Bohol">
+<meta property="og:description" content="Track rides and runs even without signal, and warn others about road hazards.">
+<meta property="og:image" content="logo.png">
+<link rel="icon" href="logo.png">
+<style>
+  :root{--bg:#050912;--bg2:#08101f;--card:#0d1424;--line:#1b2640;--text:#eaf0ff;--muted:#8fa0c4;--blue:#0a77ff;--cyan:#27c4ff;--grad:linear-gradient(90deg,var(--blue),var(--cyan))}
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
+  a{color:var(--cyan);text-decoration:none}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 22px}
+  /* nav */
+  nav{position:sticky;top:0;z-index:20;backdrop-filter:blur(14px);background:rgba(5,9,18,.72);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px}
+  .brand{display:flex;align-items:center;gap:10px;color:var(--text);font-weight:800;letter-spacing:3px}
+  .brand img{width:34px;height:34px;border-radius:9px}
+  .links{display:flex;align-items:center;gap:22px;font-size:14px}
+  .links a{color:var(--muted)}
+  .links a:hover{color:var(--text)}
+  .btn{display:inline-flex;align-items:center;gap:10px;padding:14px 28px;border-radius:14px;background:var(--grad);color:#fff!important;font-weight:700;font-size:16px;box-shadow:0 0 30px rgba(10,119,255,.45);transition:transform .15s,box-shadow .15s}
+  .btn:hover{transform:translateY(-2px);box-shadow:0 0 44px rgba(10,119,255,.65)}
+  .btn.sm{padding:9px 18px;font-size:14px;border-radius:10px;box-shadow:none}
+  .btn.ghost{background:transparent;border:1px solid var(--line);box-shadow:none;color:var(--text)!important}
+  /* hero */
+  .hero{position:relative;overflow:hidden;background:radial-gradient(900px 500px at 75% 20%,#123b78 0%,transparent 60%),radial-gradient(700px 400px at 0% 0%,#0b2347 0%,transparent 60%),var(--bg)}
+  .hero .wrap{display:grid;grid-template-columns:1.1fr .9fr;gap:40px;align-items:center;padding-top:72px;padding-bottom:84px}
+  .pill{display:inline-block;padding:6px 14px;border:1px solid var(--line);border-radius:99px;color:var(--cyan);font-size:13px;background:rgba(39,196,255,.07)}
+  h1{font-size:clamp(34px,5.2vw,58px);line-height:1.08;margin:18px 0 16px;letter-spacing:-1px}
+  h1 span{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .lead{color:var(--muted);font-size:18px;max-width:520px}
+  .cta{display:flex;flex-wrap:wrap;gap:14px;margin:30px 0 14px}
+  .meta{color:var(--muted);font-size:13px}
+  .meta b{color:var(--text)}
+  /* phone */
+  .phone-wrap{display:flex;justify-content:center;position:relative}
+  .phone-wrap::before{content:"";position:absolute;width:320px;height:320px;border-radius:50%;background:var(--blue);filter:blur(110px);opacity:.35;top:90px}
+  .phone{position:relative;width:270px;height:560px;border-radius:42px;background:#02050c;border:9px solid #151d33;box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 0 1px #26324f;overflow:hidden}
+  .phone::before{content:"";position:absolute;top:8px;left:50%;transform:translateX(-50%);width:84px;height:20px;border-radius:12px;background:#02050c;z-index:3}
+  .screen{position:absolute;inset:0;padding:44px 16px 16px;display:flex;flex-direction:column;gap:12px;background:linear-gradient(180deg,#0a1530,#050912 55%)}
+  .s-top{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted)}
+  .s-top b{color:#fff;font-size:15px;letter-spacing:2px}
+  .map{height:150px;border-radius:16px;position:relative;overflow:hidden;background:#0a1224;border:1px solid var(--line)}
+  .map svg{position:absolute;inset:0;width:100%;height:100%}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .stats div{background:#0d1424;border:1px solid var(--line);border-radius:12px;padding:9px 6px;text-align:center}
+  .stats b{display:block;font-size:17px}
+  .stats span{font-size:10px;color:var(--muted)}
+  .alert{display:flex;gap:10px;align-items:center;background:rgba(255,170,0,.1);border:1px solid rgba(255,170,0,.4);border-radius:12px;padding:10px;font-size:12px}
+  .alert i{font-style:normal;font-size:18px}
+  .rec{margin-top:auto;height:46px;border-radius:14px;background:var(--grad);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;letter-spacing:1px}
+  /* sections */
+  section{padding:84px 0}
+  section.alt{background:var(--bg2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .eyebrow{color:var(--cyan);font-size:13px;letter-spacing:3px;font-weight:700;text-transform:uppercase}
+  h2{font-size:clamp(26px,3.6vw,38px);margin:10px 0 12px;letter-spacing:-.5px}
+  .sub{color:var(--muted);max-width:600px}
+  .center{text-align:center}.center .sub{margin:0 auto}
+  .feat{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:18px;margin-top:44px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:26px;transition:transform .2s,border-color .2s}
+  .card:hover{transform:translateY(-4px);border-color:#2a4a85}
+  .ico{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;font-size:24px;background:rgba(10,119,255,.14);border:1px solid rgba(39,196,255,.25);margin-bottom:16px}
+  .card h3{margin:0 0 6px;font-size:18px}
+  .card p{margin:0;color:var(--muted);font-size:15px}
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px;margin-top:44px;counter-reset:s}
+  .step{position:relative;padding:26px;background:var(--card);border:1px solid var(--line);border-radius:20px}
+  .step::before{counter-increment:s;content:counter(s);display:grid;place-items:center;width:36px;height:36px;border-radius:50%;background:var(--grad);font-weight:800;margin-bottom:14px}
+  .step h3{margin:0 0 6px;font-size:17px}.step p{margin:0;color:var(--muted);font-size:14.5px}
+  .shots{display:flex;gap:18px;overflow-x:auto;padding:36px 4px 10px;scroll-snap-type:x mandatory}
+  .shots img{height:480px;border-radius:26px;border:6px solid #151d33;scroll-snap-align:center;flex:none}
+  .about{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center}
+  .badges{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px}
+  .badges span{padding:8px 14px;border:1px solid var(--line);border-radius:99px;font-size:13px;color:var(--muted);background:var(--card)}
+  details{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 20px;margin-top:12px}
+  summary{cursor:pointer;font-weight:600}
+  details p{color:var(--muted);margin:10px 0 0}
+  .faq{max-width:760px;margin:36px auto 0}
+  .final{text-align:center;background:radial-gradient(700px 300px at 50% 0%,#12408a 0%,transparent 70%),var(--bg)}
+  .final img{width:92px;height:92px;border-radius:22px;box-shadow:0 0 40px rgba(10,119,255,.5)}
+  footer{border-top:1px solid var(--line);padding:30px 0;color:var(--muted);font-size:13px}
+  footer .wrap{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between}
+  .team{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,230px));gap:18px;justify-content:center;margin-top:40px}
+  .dev{text-align:center;padding:26px 18px}
+  .av{width:92px;height:92px;border-radius:50%;margin:0 auto 14px;display:grid;place-items:center;font-size:30px;font-weight:800;background:var(--grad);overflow:hidden;box-shadow:0 0 26px rgba(10,119,255,.4)}
+  .av img{width:100%;height:100%;object-fit:cover}
+  .dev h3{margin:0 0 2px;font-size:17px}.dev .role{color:var(--cyan);font-size:13px;font-weight:600}
+  .dev p{margin:8px 0 0;color:var(--muted);font-size:13px}
+  .dev a.gh{display:inline-block;margin-top:10px;font-size:13px}
+  .video{position:relative;padding-top:56.25%;border-radius:20px;overflow:hidden;border:1px solid var(--line);margin-top:36px;background:#000}
+  .video iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+  .docs{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:36px}
+  .docs a.card{display:flex;gap:12px;align-items:center;color:var(--text);padding:18px 20px}
+  .contact{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px;margin-top:36px}
+  .contact .card{text-align:center}
+  .contact .ico{margin:0 auto 14px}
+  @media(max-width:860px){
+    .hero .wrap,.about{grid-template-columns:1fr}
+    .hero .wrap{padding-top:44px;text-align:center}.lead{margin:0 auto}.cta{justify-content:center}
+    .links a.hide{display:none}
+    section{padding:60px 0}
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="logo.png" alt="">VITRAX</a>
+    <div class="links">
+      <a class="hide" href="#features">Features</a>
+      <a class="hide" href="#how">How it works</a>
+      <a class="hide" href="#team">Team</a>
+      <a class="hide" href="#faq">FAQ</a>
+      <a class="hide" href="#contact">Contact</a>
+      <a class="btn sm dl" href="https://github.com/KhentZafra/vitrax-app/releases/download/v1.0.0/vitrax.apk">Download</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="wrap">
+    <div>
+      <span class="pill">Made for cyclists and runners in Bohol</span>
+      <h1>Ride and run <span>smarter</span>, even without signal.</h1>
+      <p class="lead">VITRAX records your activities offline and warns you about road hazards reported by the local riding community, before you reach them.</p>
+      <div class="cta">
+        <a class="btn dl" id="dl" href="https://github.com/KhentZafra/vitrax-app/releases/download/v1.0.0/vitrax.apk">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-5-5m5 5l5-5M5 21h14"/></svg>
+          Download for Android
+        </a>
+        <a class="btn ghost" href="#how">How to install</a>
+      </div>
+      <div class="meta"><b>Version 1.0.0</b> &middot; Android 10 or newer &middot; Free &middot; APK</div>
+    </div>
+    <div class="phone-wrap">
+      <div class="phone"><div class="screen">
+        <div class="s-top"><b>VITRAX</b><span>GPS &#9679; Ready</span></div>
+        <div class="map">
+          <svg viewBox="0 0 240 150" preserveAspectRatio="none">
+            <g stroke="#14213d" stroke-width="1"><path d="M0 30H240M0 75H240M0 120H240M40 0V150M120 0V150M200 0V150"/></g>
+            <path d="M12 128 C50 120 60 80 100 84 S150 60 170 40 S215 28 228 18" fill="none" stroke="#0a77ff" stroke-width="5" stroke-linecap="round"/>
+            <path d="M12 128 C50 120 60 80 100 84 S150 60 170 40" fill="none" stroke="#27c4ff" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="170" cy="40" r="7" fill="#27c4ff"/><circle cx="170" cy="40" r="13" fill="none" stroke="#27c4ff" stroke-opacity=".4"/>
+            <circle cx="132" cy="68" r="6" fill="#ffaa00"/>
+          </svg>
+        </div>
+        <div class="alert"><i>&#9888;&#65039;</i><div><b>Pothole ahead</b><br><span style="color:#8fa0c4">150 m &middot; confirmed by 3 riders</span></div></div>
+        <div class="stats"><div><b>12.4</b><span>km</span></div><div><b>38:20</b><span>time</span></div><div><b>19.4</b><span>km/h</span></div></div>
+        <div class="rec">&#9679; &nbsp;RECORD</div>
+      </div></div>
+    </div>
+  </div>
+</header>
+
+<section id="features">
+  <div class="wrap">
+    <div class="center">
+      <div class="eyebrow">Features</div>
+      <h2>Everything for the road in one app</h2>
+      <p class="sub">Built around how people actually ride and run in Bohol, where signal comes and goes.</p>
+    </div>
+    <div class="feat">
+      <div class="card"><div class="ico">&#128225;</div><h3>Offline recording</h3><p>GPS tracking keeps working with no signal. Your activity saves on the phone and syncs when you are back online.</p></div>
+      <div class="card"><div class="ico">&#9888;&#65039;</div><h3>Hazard reports</h3><p>Report potholes, floods, stray dogs and traffic. Other users confirm them, and they clear once the road is safe again.</p></div>
+      <div class="card"><div class="ico">&#128266;</div><h3>Voice and vibration alerts</h3><p>Get a spoken warning and a buzz as you approach a reported hazard, without looking at the screen.</p></div>
+      <div class="card"><div class="ico">&#127942;</div><h3>Challenges and badges</h3><p>Create or join local challenges, climb the podium and earn badges from Bronze all the way to Elite.</p></div>
+      <div class="card"><div class="ico">&#128172;</div><h3>Community and chat</h3><p>Share routes, post to the feed, like and comment, and message other riders and runners directly.</p></div>
+      <div class="card"><div class="ico">&#128274;</div><h3>Private by design</h3><p>The start and end of your routes stay hidden. You can delete your account and data at any time.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="alt" id="how">
+  <div class="wrap">
+    <div class="center">
+      <div class="eyebrow">Get the app</div>
+      <h2>Install in four steps</h2>
+      <p class="sub">VITRAX is shared as a direct download, so Android will ask you to allow it once.</p>
+    </div>
+    <div class="steps">
+      <div class="step"><h3>Download</h3><p>Tap <b>Download for Android</b> and wait for the file to finish.</p></div>
+      <div class="step"><h3>Allow install</h3><p>If asked, allow <b>Install unknown apps</b> for your browser. This is normal outside the Play Store.</p></div>
+      <div class="step"><h3>Install</h3><p>Open the file and tap <b>Install</b>. If Play Protect warns you, choose <b>Install anyway</b>.</p></div>
+      <div class="step"><h3>Sign up</h3><p>Open VITRAX, create an account and enter the code we email you.</p></div>
+    </div>
+    <div class="center" style="margin-top:36px"><a class="btn dl" href="https://github.com/KhentZafra/vitrax-app/releases/download/v1.0.0/vitrax.apk">Download VITRAX 1.0.0</a></div>
+  </div>
+</section>
+
+<section id="screens" style="display:none">
+  <div class="wrap">
+    <div class="center"><div class="eyebrow">Screenshots</div><h2>See it in action</h2></div>
+    <div class="shots" id="shots"></div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap about">
+    <div>
+      <div class="eyebrow">About</div>
+      <h2>A capstone project from Bohol</h2>
+      <p class="sub">VITRAX was developed by students of Cristal e-College in Panglao, Bohol, to make everyday cycling and running safer and more connected for the local community.</p>
+      <div class="badges"><span>Offline GPS</span><span>Crowdsourced hazards</span><span>Community challenges</span><span>Free to use</span></div>
+    </div>
+    <div class="card" style="text-align:center">
+      <img src="logo.png" alt="VITRAX" width="96" height="96" style="border-radius:24px;box-shadow:0 0 36px rgba(10,119,255,.45)">
+      <h3 style="margin:16px 0 4px">VITRAX</h3>
+      <p>Cristal e-College &middot; Panglao, Bohol</p>
+    </div>
+  </div>
+</section>
+
+<section id="demo" style="display:none">
+  <div class="wrap">
+    <div class="center"><div class="eyebrow">Demo</div><h2>Watch how it works</h2></div>
+    <div class="video"><iframe id="ytFrame" title="VITRAX demo video" allowfullscreen loading="lazy"></iframe></div>
+  </div>
+</section>
+
+<section class="alt" id="documents" style="display:none">
+  <div class="wrap">
+    <div class="center"><div class="eyebrow">Documents</div><h2>Project documents</h2><p class="sub">Manuals and papers about the project.</p></div>
+    <div class="docs" id="docsGrid"></div>
+  </div>
+</section>
+
+<section id="team">
+  <div class="wrap">
+    <div class="center">
+      <div class="eyebrow">The team</div>
+      <h2>Meet the developers</h2>
+      <p class="sub">VITRAX is built by students of Cristal e-College, Panglao, Bohol.</p>
+    </div>
+    <div class="team" id="teamGrid"></div>
+  </div>
+</section>
+
+<section class="alt" id="faq">
+  <div class="wrap">
+    <div class="center"><div class="eyebrow">FAQ</div><h2>Common questions</h2></div>
+    <div class="faq">
+      <details><summary>Is VITRAX free?</summary><p>Yes. Downloading and using the app is free.</p></details>
+      <details><summary>Why does my phone warn me when installing?</summary><p>The app is installed from a file instead of the Play Store, so Android asks you to confirm. Allow installs from your browser and choose "Install anyway" if Play Protect asks.</p></details>
+      <details><summary>Does it work without internet?</summary><p>Recording works offline. Your activity syncs when you reconnect. Features like the feed, chat and challenges need a connection.</p></details>
+      <details><summary>Which phones are supported?</summary><p>Android 10 or newer. There is no iPhone version yet.</p></details>
+      <details><summary>How is my location used?</summary><p>To record your activities and to warn you about nearby hazards. The start and end of your routes are hidden from others. Read the <a href="privacy.html">privacy policy</a>.</p></details>
+    </div>
+  </div>
+</section>
+
+<section id="contact">
+  <div class="wrap">
+    <div class="center"><div class="eyebrow">Contact</div><h2>Get in touch</h2><p class="sub">Questions, feedback or bug reports? Reach out to the team.</p></div>
+    <div class="contact">
+      <div class="card"><div class="ico">&#128205;</div><h3>Address</h3><p>KM 15, Dauis-Panglao Road, Tawala, Panglao, Bohol, Philippines</p></div>
+      <div class="card"><div class="ico">&#9993;&#65039;</div><h3>Email</h3><p><a id="mailLink" href="mailto:paseo0396@gmail.com">paseo0396@gmail.com</a></p></div>
+    </div>
+  </div>
+</section>
+
+<section class="final">
+  <div class="wrap">
+    <img src="logo.png" alt="">
+    <h2>Ready to ride?</h2>
+    <p class="sub">Download VITRAX and join the community.</p>
+    <div style="margin-top:26px"><a class="btn dl" href="https://github.com/KhentZafra/vitrax-app/releases/download/v1.0.0/vitrax.apk">Download for Android</a></div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>&copy; 2026 VITRAX &middot; Cristal e-College, Panglao, Bohol</span>
+    <span><a href="privacy.html">Privacy Policy</a> &middot; <a href="mailto:paseo0396@gmail.com">paseo0396@gmail.com</a></span>
+  </div>
+</footer>
+
+<script>
+// Change the download link for ALL buttons here, in one place.
+var APK_URL='https://github.com/KhentZafra/vitrax-app/releases/download/v1.0.0/vitrax.apk';
+document.querySelectorAll('.dl').forEach(function(a){a.href=APK_URL;});
+// ===== TEAM: edit this list. Photos go in website/team/ (photo: 'khent.jpg'). =====
+var TEAM=[
+  {name:'Khent Zafra', role:'Developer', photo:'', github:'https://github.com/KhentZafra'}
+  // ,{name:'Full Name', role:'Developer', photo:'name.jpg', github:''}
+  // ,{name:'Adviser Name', role:'Capstone Adviser', photo:'', github:''}
+];
+(function(){
+  var g=document.getElementById('teamGrid');
+  if(!TEAM.length){document.getElementById('team').style.display='none';return;}
+  TEAM.forEach(function(m){
+    var d=document.createElement('div');d.className='card dev';
+    var ini=m.name.split(' ').map(function(w){return w[0]}).slice(0,2).join('').toUpperCase();
+    var av='<div class="av">'+(m.photo?'<img src="team/'+m.photo+'" alt="" onerror="this.parentNode.textContent=\''+ini+'\'">':ini)+'</div>';
+    d.innerHTML=av+'<h3></h3><div class="role"></div>'+(m.github?'<a class="gh" target="_blank" rel="noopener">GitHub</a>':'');
+    d.querySelector('h3').textContent=m.name;d.querySelector('.role').textContent=m.role;
+    if(m.github)d.querySelector('a').href=m.github;
+    g.appendChild(d);
+  });
+})();
+// ===== Optional demo video: paste the YouTube video ID (the part after v=) =====
+var YOUTUBE_ID='';
+if(YOUTUBE_ID){document.getElementById('ytFrame').src='https://www.youtube.com/embed/'+YOUTUBE_ID;document.getElementById('demo').style.display='block';}
+// ===== Optional documents: links to PDFs / Google Drive files =====
+var DOCS=[
+  // {title:'User Manual', url:'https://drive.google.com/...'},
+  // {title:'Capstone Paper', url:'https://drive.google.com/...'}
+];
+if(DOCS.length){
+  var dg=document.getElementById('docsGrid');
+  DOCS.forEach(function(d){var a=document.createElement('a');a.className='card';a.target='_blank';a.rel='noopener';a.href=d.url;a.textContent='\uD83D\uDCC4 '+d.title;dg.appendChild(a);});
+  document.getElementById('documents').style.display='block';
+}
+// Screenshots: put phone screenshots in website/shots/ named 1.png ... 6.png.
+// The section only appears for the images that exist.
+(function(){
+  var box=document.getElementById('shots'),sec=document.getElementById('screens'),shown=0;
+  for(var i=1;i<=6;i++){
+    (function(n){
+      var im=new Image();
+      im.onload=function(){im.alt='VITRAX screenshot '+n;box.appendChild(im);sec.style.display='block';};
+      im.src='shots/'+n+'.png';
+    })(i);
+  }
+})();
+</script>
+</body>
+</html>

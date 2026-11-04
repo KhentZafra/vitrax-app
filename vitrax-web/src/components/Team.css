@@ -1,0 +1,15 @@
+.team { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.mate { display: grid; gap: 4px; padding-top: 20px; border-top: 1px solid var(--rule); }
+.mate__av {
+  width: 96px; height: 96px; margin-bottom: 12px; border-radius: 50%; overflow: hidden; display: grid; place-content: center;
+  background: var(--deck); border: 1px solid var(--rule);
+  font-family: var(--f-display); font-weight: 800; font-stretch: 120%; font-size: 18px; color: var(--volt-2);
+  transition: transform 0.4s var(--ease), border-color 0.3s;
+}
+.mate:hover .mate__av { transform: rotate(-6deg) translateY(-3px); border-color: var(--volt); }
+.mate__av img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mate__note { color: var(--mute); font-size: 13px; opacity: .8; }
+.mate b { font-size: 18px; }
+.mate__role { color: var(--mute); font-size: 14.5px; }
+
+@media (max-width: 620px) { .team { grid-template-columns: 1fr; } }

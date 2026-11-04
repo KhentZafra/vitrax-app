@@ -1,3 +1,4 @@
+import '../widgets/hazard_photos.dart';
 import '../widgets/route_end_marker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../widgets/route_nav_icon.dart';
@@ -5,6 +6,8 @@ import '../widgets/track_arrow_icon.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/activity_provider.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 import '../widgets/skeleton_views.dart';
@@ -51,6 +54,15 @@ class _RoutesScreenState extends State<RoutesScreen> {
   // an area with nothing in it.
   String? _filterLocation;
 
+  // Type filter: Cycling / Running, each expandable to its sub-types.
+  ActivityType? _filterType; // null = all types
+  String? _filterSub; // null = every sub-type of the chosen type
+  ActivityType? _expandedType; // which type's sub-type list is open
+  bool _mineOnly = false; // "My routes": only routes I shared
+
+  static const _cyclingSubs = ['Road cycling', 'Mountain biking', 'Gravel cycling', 'Cycle touring', 'Bikepacking', 'BMX', 'Fat biking', 'Track cycling'];
+  static const _runningSubs = ['Recovery run', 'Easy run', 'Intervals', 'Tempo run', 'Threshold run', 'Fartlek', 'Progression run', 'Hill reps'];
+
   @override
   void initState() {
     super.initState();
@@ -92,6 +104,9 @@ class _RoutesScreenState extends State<RoutesScreen> {
     return _routes.where((r) {
       if (_filterTier != null && r.safetyTier != _filterTier) return false;
       if (_filterLocation != null && r.activity.location != _filterLocation) return false;
+      if (_mineOnly && r.activity.userId != Supabase.instance.client.auth.currentUser?.id) return false;
+      if (_filterType != null && r.activity.type != _filterType) return false;
+      if (_filterSub != null && r.activity.subtype != _filterSub) return false;
       return true;
     }).toList()
       // Routes that match what the user said they do (cyclist / runner /
@@ -101,6 +116,169 @@ class _RoutesScreenState extends State<RoutesScreen> {
         final bm = _pref.matchesType(b.activity.type) ? 0 : 1;
         return am.compareTo(bm);
       });
+  }
+
+  /// Pill with an optional dropdown arrow, shared by the type / mine chips.
+  Widget _pill({required String label, required IconData icon, required Color color, required bool selected, required VoidCallback onTap, bool? expanded}) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(24),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          decoration: BoxDecoration(
+            color: selected ? color.withValues(alpha: .2) : const Color(0xff141414),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: selected ? color : Colors.white10),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: selected ? color : Colors.grey.shade400),
+              const SizedBox(width: 6),
+              Text(label, style: TextStyle(color: selected ? color : Colors.grey.shade400, fontSize: 13, fontWeight: FontWeight.w600)),
+              if (expanded != null) ...[
+                const SizedBox(width: 2),
+                AnimatedRotation(
+                  turns: expanded ? .5 : 0,
+                  duration: const Duration(milliseconds: 180),
+                  child: Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: selected ? color : Colors.grey.shade500),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _tapType(ActivityType t) {
+    setState(() {
+      if (_filterType == t) {
+        // Already chosen: the pill just opens/closes its sub-type list.
+        _expandedType = _expandedType == t ? null : t;
+      } else {
+        _filterType = t;
+        _filterSub = null;
+        _expandedType = t;
+      }
+    });
+  }
+
+  /// Type + "My routes" filter row, with the sub-type list opening beneath.
+  Widget _buildTypeFilter() {
+    final subs = _expandedType == ActivityType.ride ? _cyclingSubs : (_expandedType == ActivityType.run ? _runningSubs : const <String>[]);
+    Widget subChip(String label, String? value) {
+      final sel = _filterSub == value;
+      return Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: ChoiceChip(
+          label: Text(label),
+          selected: sel,
+          onSelected: (_) => setState(() => _filterSub = value),
+          backgroundColor: const Color(0xff141414),
+          selectedColor: Colors.blue.withValues(alpha: .25),
+          labelStyle: TextStyle(color: sel ? Colors.lightBlueAccent : Colors.grey.shade400, fontSize: 12.5, fontWeight: FontWeight.w600),
+          side: BorderSide(color: sel ? Colors.blue : Colors.white10),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          showCheckmark: false,
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _pill(
+                label: 'All types',
+                icon: Icons.apps_rounded,
+                color: Colors.blue,
+                selected: _filterType == null,
+                onTap: () => setState(() {
+                  _filterType = null;
+                  _filterSub = null;
+                  _expandedType = null;
+                }),
+              ),
+              _pill(
+                label: _filterType == ActivityType.ride && _filterSub != null ? _filterSub! : 'Cycling',
+                icon: Icons.directions_bike_rounded,
+                color: Colors.lightBlueAccent,
+                selected: _filterType == ActivityType.ride,
+                expanded: _expandedType == ActivityType.ride,
+                onTap: () => _tapType(ActivityType.ride),
+              ),
+              _pill(
+                label: _filterType == ActivityType.run && _filterSub != null ? _filterSub! : 'Running',
+                icon: Icons.directions_run_rounded,
+                color: Colors.orangeAccent,
+                selected: _filterType == ActivityType.run,
+                expanded: _expandedType == ActivityType.run,
+                onTap: () => _tapType(ActivityType.run),
+              ),
+              _pill(
+                label: 'My routes',
+                icon: Icons.person_outline_rounded,
+                color: const Color(0xff22c55e),
+                selected: _mineOnly,
+                onTap: () => setState(() => _mineOnly = !_mineOnly),
+              ),
+            ],
+          ),
+        ),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          alignment: Alignment.topCenter,
+          child: subs.isEmpty
+              ? const SizedBox(width: double.infinity)
+              : Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(children: [subChip('All', null), for (final x in subs) subChip(x, x)]),
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _removeShared(SharedRoute route) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xff141414),
+        title: const Text('Remove from shared routes?', style: TextStyle(color: Colors.white)),
+        content: Text(
+          'This route will no longer appear on the Routes tab or your Community feed post. The activity stays in your own history.',
+          style: TextStyle(color: Colors.grey.shade400, height: 1.4),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove', style: TextStyle(color: Colors.redAccent))),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final id = route.activity.id;
+    if (id == null) return;
+    final done = await context.read<ActivityProvider>().markActivityUnshared(id);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(done ? 'Removed from shared routes.' : "Couldn't remove it. Please try again.")));
+    if (done) {
+      setState(() {
+        _routes = _routes.where((r) => r.activity.id != route.activity.id).toList();
+        _cachedRoutes = _routes;
+      });
+    }
   }
 
   Widget _buildTierFilterRow() {
@@ -235,6 +413,8 @@ class _RoutesScreenState extends State<RoutesScreen> {
                         Text('Discover, track, and share your journey.', style: TextStyle(color: Colors.grey.shade500, fontSize: 14)),
                         const SizedBox(height: 18),
                         _buildTierFilterRow(),
+                        const SizedBox(height: 10),
+                        _buildTypeFilter(),
                         const SizedBox(height: 12),
                         SizedBox(
                           width: double.infinity,
@@ -254,7 +434,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
                         const SizedBox(height: 16),
                         Row(
                           children: [
-                            const Expanded(child: Text('Popular Routes', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800))),
+                            Expanded(child: Text(_mineOnly ? 'My shared routes' : 'Popular Routes', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800))),
                             Text('${_visibleRoutes.length} routes', style: const TextStyle(color: Colors.blueAccent, fontSize: 13, fontWeight: FontWeight.w700)),
                           ],
                         ),
@@ -266,7 +446,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
                 if (!_isLoading && _visibleRoutes.isEmpty)
                   SliverFillRemaining(
                     hasScrollBody: false,
-                    child: _EmptyState(filtered: _filterTier != null || _filterLocation != null),
+                    child: _EmptyState(filtered: _filterTier != null || _filterLocation != null || _filterType != null || _mineOnly),
                   )
                 else
                   SliverPadding(
@@ -284,7 +464,21 @@ class _RoutesScreenState extends State<RoutesScreen> {
                             MaterialPageRoute(builder: (_) => RouteDetailScreen(route: route)),
                           ),
                         );
-                        return _pref.matchesType(route.activity.type) ? PreferredHighlight(child: card) : card;
+                        final shown = _pref.matchesType(route.activity.type) ? PreferredHighlight(child: card) : card;
+                        if (!_mineOnly) return shown;
+                        return Column(
+                          children: [
+                            shown,
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton.icon(
+                                onPressed: () => _removeShared(route),
+                                icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
+                                label: const Text('Remove from shared', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w600)),
+                              ),
+                            ),
+                          ],
+                        );
                       },
                     ),
                   ),
@@ -678,7 +872,7 @@ class _RouteLikeButtonState extends State<_RouteLikeButton> {
     });
     if (!ok) {
       ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't update your like, Please try again.")));
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text("Couldn't update your like, Please try again.")));
     }
   }
 
@@ -1244,7 +1438,7 @@ class _ClusterDetailSheetState extends State<_ClusterDetailSheet> {
       _loadStatus(); // refresh counts — may now be gone entirely if this was the 3rd
     } else {
       ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
         const SnackBar(content: Text("Couldn't confirm, You may be the original reporter, or you've already confirmed this one.")),
       );
     }
@@ -1259,10 +1453,10 @@ class _ClusterDetailSheetState extends State<_ClusterDetailSheet> {
     if (success) {
       _loadStatus();
       ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Thanks, This helps keep reports trustworthy.')));
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text('Thanks, This helps keep reports trustworthy.')));
     } else {
       ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
         const SnackBar(content: Text("Couldn't confirm, You may be the original reporter, or you've already confirmed this one.")),
       );
     }
@@ -1327,6 +1521,15 @@ class _ClusterDetailSheetState extends State<_ClusterDetailSheet> {
                           Text(widget.relativeTimeLabel(r.reportedAt), style: TextStyle(color: Colors.grey.shade300, fontSize: 13)),
                         ],
                       ),
+                      if (r.type == HazardType.noSignal && r.lengthMeters != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            'No signal for about ${r.lengthMeters!.round()} m${r.autoDetected ? ' (measured automatically)' : ''}',
+                            style: TextStyle(color: Colors.grey.shade400, fontSize: 12.5),
+                          ),
+                        ),
+                      if (r.id != null) HazardPhotoStrip(hazardId: r.id!),
                       if (r.id != null) ...[
                         const SizedBox(height: 8),
                         if (_loadingStatus)

@@ -239,6 +239,20 @@ class ActivityProvider extends ChangeNotifier {
     }
   }
 
+  /// Takes a route off the Routes tab (and the Community feed post, if any).
+  /// The activity itself stays in the user's own history.
+  Future<bool> markActivityUnshared(String activityId) async {
+    try {
+      await _supabase.from('activities').update({'shared': false, 'shared_to_feed': false}).eq('id', activityId);
+      _activities = _activities.map((a) => a.id != activityId ? a : a.copyWith(shared: false, sharedToFeed: false)).toList();
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('markActivityUnshared failed: $e');
+      return false;
+    }
+  }
+
   List<Activity> get thisWeekActivities {
     final now = DateTime.now();
     final startOfWeek = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));

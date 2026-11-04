@@ -1,0 +1,6 @@
+1. Upload vitrax.apk as a GitHub Release (tag v1.0.0) on a PUBLIC repo.
+   If the repo/tag/file name differs, edit the href of id="dl" in index.html.
+2. vercel.com -> Add New Project -> import the repo -> Root Directory: website
+   Framework Preset: Other. Leave build/output blank. Deploy.
+   (Or drag-drop this website folder at vercel.com/new)
+3. Your link: https://<project>.vercel.app  (privacy page: /privacy)

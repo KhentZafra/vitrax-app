@@ -17,6 +17,8 @@ import '../models/activity.dart';
 import '../models/challenge.dart';
 import '../providers/activity_provider.dart';
 import '../services/challenge_service.dart';
+import '../services/chat_service.dart';
+import 'chat_thread_screen.dart';
 import 'activity_selection_screen.dart';
 import 'subtype_selection_screen.dart';
 import '../widgets/user_avatar.dart';
@@ -149,7 +151,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
       _load();
     } else {
       ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Something went wrong, Please try again.')));
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text('Something went wrong, Please try again.')));
     }
   }
 
@@ -183,10 +185,10 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
 
     ScaffoldMessenger.of(context).clearSnackBars();
     if (url != null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('QR code uploaded, The creator can now pay you.')));
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text('QR code uploaded, The creator can now pay you.')));
       _load();
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't upload, Please try again.")));
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text("Couldn't upload, Please try again.")));
     }
   }
 
@@ -194,22 +196,49 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
     final winner = _winner;
     if (winner == null) return;
 
+    // 1. The creator must attach a screenshot of the GCash receipt.
+    final picked = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 1400, imageQuality: 85);
+    if (picked == null || !mounted) return;
+    final proofFile = File(picked.path);
+
+    // 2. Show it back so they can check it is the right receipt.
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xff141414),
         title: const Text('Mark prize as paid?', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
-        content: Text('Confirm you\'ve sent the prize to ${winner.name} via GCash. This can\'t be undone.', style: TextStyle(color: Colors.grey.shade400)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Confirm you\'ve sent the prize to ${winner.name} via GCash. This receipt will be saved as proof, and the winner can see it. This can\'t be undone.', style: TextStyle(color: Colors.grey.shade400)),
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.file(proofFile, height: 240, width: double.infinity, fit: BoxFit.contain),
+              ),
+            ],
+          ),
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
           TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Confirm', style: TextStyle(color: Colors.blue))),
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted) return;
 
     setState(() => _busy = true);
-    final success = await ChallengeService.markPrizePaid(challengeId: widget.challengeId, winnerUserId: winner.userId);
+    final proofPath = await ChallengeService.uploadPrizeProof(challengeId: widget.challengeId, image: proofFile);
+    if (proofPath == null) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text("Couldn't upload the receipt. Please try again.")));
+      return;
+    }
+    final success = await ChallengeService.markPrizePaid(challengeId: widget.challengeId, winnerUserId: winner.userId, proofPath: proofPath);
     if (!mounted) return;
     setState(() => _busy = false);
 
@@ -217,8 +246,114 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
       _load();
     } else {
       ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not confirm, Please try again.')));
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text('Could not confirm, Please try again.')));
     }
+  }
+
+  /// Winner: confirm that the prize really arrived.
+  Future<void> _confirmReceived() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xff141414),
+        title: const Text('Did you receive the prize?', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+        content: Text('Only confirm if the money is in your GCash. This closes the prize as paid.', style: TextStyle(color: Colors.grey.shade400)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Not yet')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Yes, I received it', style: TextStyle(color: Colors.green))),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _busy = true);
+    final done = await ChallengeService.confirmPrizeReceipt(widget.challengeId);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (done) {
+      _load();
+    } else {
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text('Could not confirm. Please try again.')));
+    }
+  }
+
+  /// Winner: report that the prize was marked as paid but never arrived.
+  Future<void> _disputeReceived() async {
+    final noteCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xff141414),
+        title: const Text('Report: I did not receive it', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('An admin will review the receipt and your chat with the creator. Please check your GCash first.', style: TextStyle(color: Colors.grey.shade400)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: noteCtrl,
+              maxLines: 3,
+              maxLength: 300,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(hintText: 'What happened? (optional)', hintStyle: TextStyle(color: Colors.grey)),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Send report', style: TextStyle(color: Colors.redAccent))),
+        ],
+      ),
+    );
+    final note = noteCtrl.text;
+    noteCtrl.dispose();
+    if (ok != true || !mounted) return;
+    setState(() => _busy = true);
+    final done = await ChallengeService.disputePrize(widget.challengeId, note: note);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (done) {
+      _load();
+    } else {
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text('Could not send the report. Please try again.')));
+    }
+  }
+
+  /// Opens the proof-of-payment screenshot (creator and winner only).
+  Future<void> _viewProof(String path) async {
+    final url = await ChallengeService.signedProofUrl(path);
+    if (!mounted) return;
+    if (url == null) {
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text("Couldn't load the proof. Try again.")));
+      return;
+    }
+    showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: const Color(0xff141414),
+        insetPadding: const EdgeInsets.all(16),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Proof of payment', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 12),
+              Flexible(
+                child: InteractiveViewer(
+                  child: Image.network(
+                    url,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) => const Padding(padding: EdgeInsets.all(20), child: Text("Couldn't show the image.", style: TextStyle(color: Colors.grey))),
+                  ),
+                ),
+              ),
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   // ---------- Route-challenge attempt submission ----------
@@ -247,7 +382,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
 
     if (myActivities.isEmpty) {
       ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("You don't have any recorded activities with a route yet.")));
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text("You don't have any recorded activities with a route yet.")));
       return;
     }
 
@@ -271,7 +406,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
     final c = _challenge;
     final route = c?.routePoints;
     if (c == null || route == null || route.length < 2) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("This challenge's route isn't available.")));
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text("This challenge's route isn't available.")));
       return;
     }
     final launched = DateTime.now();
@@ -329,26 +464,26 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
     ScaffoldMessenger.of(context).clearSnackBars();
     switch (result.status) {
       case ChallengeAttemptStatus.success:
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('New time recorded: ${_formatDuration(result.duration!)}! 🎉')));
+        ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(SnackBar(content: Text('New time recorded: ${_formatDuration(result.duration!)}! 🎉')));
         _load();
         break;
       case ChallengeAttemptStatus.notImproved:
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Your best time is still ${_formatDuration(result.duration!)}, This attempt wasn\'t faster.')));
+        ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(SnackBar(content: Text('Your best time is still ${_formatDuration(result.duration!)}, This attempt wasn\'t faster.')));
         break;
       case ChallengeAttemptStatus.tooFarFromStart:
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("This activity didn't start close enough to the challenge's route.")));
+        ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text("This activity didn't start close enough to the challenge's route.")));
         break;
       case ChallengeAttemptStatus.tooFarFromFinish:
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("This activity didn't finish close enough to the challenge's route.")));
+        ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text("This activity didn't finish close enough to the challenge's route.")));
         break;
       case ChallengeAttemptStatus.offRoute:
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("You didn't follow the challenge's route closely enough. Retrace the same path to beat it.")));
+        ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text("You didn't follow the challenge's route closely enough. Retrace the same path to beat it.")));
         break;
       case ChallengeAttemptStatus.implausiblePace:
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('That pace is faster than physically plausible for this activity type, Attempt rejected.')));
+        ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text('That pace is faster than physically plausible for this activity type, Attempt rejected.')));
         break;
       case ChallengeAttemptStatus.error:
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't submit, Please try again.")));
+        ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text("Couldn't submit, Please try again.")));
         break;
     }
   }
@@ -361,6 +496,114 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
   String _progressLabel(double progress, Challenge c) {
     final p = progress == progress.roundToDouble() ? progress.toInt().toString() : progress.toStringAsFixed(1);
     return '$p / ${_goalLabel(c)}';
+  }
+
+  /// Top three finishers of an ENDED challenge that has no cash prize, so
+  /// the winner still gets recognised. Goal challenges rank by the highest
+  /// result among people who reached the goal; route challenges rank by the
+  /// fastest time.
+  List<({String userId, String name, String? avatarUrl, String result})> _podium(Challenge c) => _ranking(c).take(3).toList();
+
+  /// Everyone who reached the goal (or finished the route), best first.
+  List<({String userId, String name, String? avatarUrl, String result})> _ranking(Challenge c) {
+    if (c.isRouteChallenge) {
+      return _timeLeaderboard
+          .map((e) => (userId: e.userId, name: e.name, avatarUrl: e.avatarUrl, result: _formatDuration(e.duration)))
+          .toList();
+    }
+    final finished = _standings.where((s) => s.isCompleted).toList()
+      ..sort((a, b) {
+        final byResult = b.progressValue.compareTo(a.progressValue);
+        if (byResult != 0) return byResult;
+        return a.completedAt!.compareTo(b.completedAt!);
+      });
+    return finished
+        .map((s) => (userId: s.userId, name: s.name, avatarUrl: s.avatarUrl, result: _progressLabel(s.progressValue, c)))
+        .toList();
+  }
+
+  Widget _podiumCard(Challenge c) {
+    final ranking = _ranking(c);
+    final podium = ranking.take(3).toList();
+    final myRank = ranking.indexWhere((e) => e.userId == _currentUserId);
+    const gold = Color(0xffffc247);
+    final medalColors = [gold, const Color(0xffc0c7d1), const Color(0xffcd7f32)];
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: gold.withValues(alpha: .07),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: gold.withValues(alpha: .45)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.emoji_events, color: gold, size: 22),
+              SizedBox(width: 8),
+              Text('Challenge champions', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
+            ],
+          ),
+          if (myRank == 0) ...[
+            const SizedBox(height: 10),
+            const Text('You won this challenge! Congratulations.', style: TextStyle(color: gold, fontSize: 13.5, fontWeight: FontWeight.w600)),
+          ] else if (myRank > 0 && myRank < 3) ...[
+            const SizedBox(height: 10),
+            Text('You finished in the top 3 (#${myRank + 1}). Well done!', style: const TextStyle(color: gold, fontSize: 13.5, fontWeight: FontWeight.w600)),
+          ] else if (myRank >= 3) ...[
+            const SizedBox(height: 10),
+            Text('You finished #${myRank + 1} of ${ranking.length}.', style: const TextStyle(color: gold, fontSize: 13.5, fontWeight: FontWeight.w600)),
+          ] else if (c.joinedByMe) ...[
+            const SizedBox(height: 10),
+            Text("You joined but didn't reach the goal this time.", style: TextStyle(color: Colors.grey.shade400, fontSize: 13)),
+          ],
+          const SizedBox(height: 12),
+          for (var i = 0; i < podium.length; i++)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 5),
+              child: Row(
+                children: [
+                  Container(
+                    width: 26,
+                    height: 26,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(color: medalColors[i], shape: BoxShape.circle),
+                    child: Text('${i + 1}', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w800, fontSize: 13)),
+                  ),
+                  const SizedBox(width: 10),
+                  UserAvatar(avatarUrl: podium[i].avatarUrl, radius: 14),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(podium[i].name, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 14))),
+                  Text(podium[i].result, style: TextStyle(color: Colors.grey.shade400, fontSize: 13)),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Opens (or creates) a direct chat so the creator and the winner can
+  /// agree on how the prize is handed over.
+  Future<void> _messageUser(String userId, String name, String? avatarUrl) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final conversationId = await ChatService.startOrGetConversation(userId);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (conversationId == null) {
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text("Couldn't open the chat. Try again.")));
+      return;
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatThreadScreen(conversationId: conversationId, otherUserId: userId, otherUserName: name, otherUserAvatarUrl: avatarUrl),
+      ),
+    );
   }
 
   /// Winner's result, formatted for display — a duration for a route
@@ -415,6 +658,8 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
     final progressFraction = c.targetValue > 0 ? (progress / c.targetValue).clamp(0.0, 1.0) : 0.0;
     final iAmWinner = _winner != null && _winner!.userId == _currentUserId;
     final iAmCreator = c.creatorId == _currentUserId;
+    // The creator won their own challenge: nobody needs to be paid or messaged.
+    final selfWin = _winner != null && _winner!.userId == c.creatorId;
     final myBestTime = _timeLeaderboard.where((e) => e.userId == _currentUserId).map((e) => e.duration).firstOrNull;
 
     return Scaffold(
@@ -547,6 +792,9 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                 ]),
               const SizedBox(height: 24),
 
+              // ---------- Champions (challenges without a cash prize) ----------
+              if (!c.hasPrize && c.hasEnded && _podium(c).isNotEmpty) _podiumCard(c),
+
               // ---------- Cash prize section ----------
               if (c.hasPrize) ...[
                 Container(
@@ -586,7 +834,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                         const SizedBox(height: 12),
 
                         // Winner, hasn't uploaded QR yet
-                        if (iAmWinner && _winner!.gcashQrUrl == null)
+                        if (!selfWin && iAmWinner && _winner!.gcashQrUrl == null)
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton.icon(
@@ -598,7 +846,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                           ),
 
                         // Winner, already uploaded QR, not yet paid
-                        if (iAmWinner && _winner!.gcashQrUrl != null && !_winner!.prizePaid)
+                        if (!selfWin && iAmWinner && _winner!.gcashQrUrl != null && !_winner!.prizePaid)
                           Row(
                             children: [
                               const Icon(Icons.check_circle, color: Colors.green, size: 16),
@@ -608,7 +856,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                           ),
 
                         // Creator view: show winner's QR + mark paid
-                        if (iAmCreator && !_winner!.prizePaid) ...[
+                        if (!selfWin && iAmCreator && !_winner!.prizePaid) ...[
                           if (_winner!.gcashQrUrl != null) ...[
                             ClipRRect(
                               borderRadius: BorderRadius.circular(12),
@@ -620,21 +868,102 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                               child: OutlinedButton(
                                 onPressed: _busy ? null : _markPaid,
                                 style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.green)),
-                                child: const Text('Mark as Paid', style: TextStyle(color: Colors.green)),
+                                child: const Text('Mark as Paid (attach receipt)', style: TextStyle(color: Colors.green)),
                               ),
                             ),
                           ] else
                             Text('Waiting for ${_winner!.name} to upload their GCash QR code.', style: TextStyle(color: Colors.grey.shade500, fontSize: 12.5)),
                         ],
 
-                        // Prize already paid — shown to anyone
-                        if (_winner!.prizePaid)
+                        if (selfWin)
+                          Text(
+                            iAmCreator ? 'You won your own challenge, so there is no prize to send.' : 'The creator won their own challenge, so no prize is sent.',
+                            style: TextStyle(color: Colors.grey.shade400, fontSize: 12.5),
+                          ),
+
+                        // Creator <-> winner chat, to arrange the prize.
+                        if (!selfWin && (iAmCreator || iAmWinner)) ...[
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: _busy
+                                  ? null
+                                  : () => iAmCreator
+                                      ? _messageUser(_winner!.userId, _winner!.name, _winner!.avatarUrl)
+                                      : _messageUser(c.creatorId, c.creatorName, null),
+                              icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                              label: Text(iAmCreator ? 'Message ${_winner!.name} about the prize' : 'Message the creator about the prize'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.blue,
+                                side: const BorderSide(color: Colors.blue),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                        ],
+
+                        // Prize status, shown to anyone
+                        if (_winner!.disputed)
                           const Row(
                             children: [
-                              Icon(Icons.check_circle, color: Colors.green, size: 16),
+                              Icon(Icons.gavel, color: Colors.orange, size: 16),
                               SizedBox(width: 6),
-                              Text('Prize paid ✓', style: TextStyle(color: Colors.green, fontSize: 12.5, fontWeight: FontWeight.w600)),
+                              Expanded(child: Text('Disputed: the winner says it was not received. An admin is reviewing it.', style: TextStyle(color: Colors.orange, fontSize: 12.5, fontWeight: FontWeight.w600))),
                             ],
+                          )
+                        else if (_winner!.confirmed)
+                          const Row(
+                            children: [
+                              Icon(Icons.verified, color: Colors.green, size: 16),
+                              SizedBox(width: 6),
+                              Text('Prize paid and confirmed ✓', style: TextStyle(color: Colors.green, fontSize: 12.5, fontWeight: FontWeight.w600)),
+                            ],
+                          )
+                        else if (_winner!.awaitingConfirm)
+                          Row(
+                            children: [
+                              const Icon(Icons.hourglass_top, color: Colors.amber, size: 16),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  iAmWinner ? 'The creator marked this as paid. Please confirm if you received it.' : 'Marked as paid. Waiting for ${_winner!.name} to confirm.',
+                                  style: const TextStyle(color: Colors.amber, fontSize: 12.5, fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                            ],
+                          ),
+                        if (!selfWin && iAmWinner && _winner!.awaitingConfirm) ...[
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton(
+                                  onPressed: _busy ? null : _confirmReceived,
+                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 12)),
+                                  child: const Text('I received it'),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: _busy ? null : _disputeReceived,
+                                  style: OutlinedButton.styleFrom(foregroundColor: Colors.redAccent, side: const BorderSide(color: Colors.redAccent), padding: const EdgeInsets.symmetric(vertical: 12)),
+                                  child: const Text('Not received'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                        if (_winner!.prizePaid && _winner!.proofPath != null && (iAmCreator || iAmWinner))
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton.icon(
+                              onPressed: () => _viewProof(_winner!.proofPath!),
+                              icon: const Icon(Icons.receipt_long, size: 18),
+                              label: const Text('View proof of payment'),
+                            ),
                           ),
                       ],
                     ],

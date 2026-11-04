@@ -142,6 +142,7 @@
     challenges: { title: 'Challenges', icon: ICONS.challenges },
     reports: { title: 'Reports', icon: ICONS.reports },
     flagged: { title: 'Flagged users', icon: ICONS.flagged },
+    prizes: { title: 'Prize disputes', icon: ICONS.challenges },
     audit: { title: 'Audit log', icon: ICONS.audit },
   };
 
@@ -356,7 +357,7 @@
       (d || []).forEach((x) => m.set(x.hazard_id, (m.get(x.hazard_id) || 0) + 1));
       return m;
     };
-    const [verif, clears] = await Promise.all([tally('hazard_verifications'), tally('hazard_clear_confirmations')]);
+    const [verif, clears, photos] = await Promise.all([tally('hazard_verifications'), tally('hazard_clear_confirmations'), tally('hazard_photos')]);
     const types = [...new Set(rows.map((r) => r.type))].sort();
     page.innerHTML = `<div class="toolbar"><select id="h-t"><option value="">All types (${rows.length})</option>${types.map((t) => `<option>${esc(t)}</option>`).join('')}</select>
         <button class="btn small-btn" data-act="expire-stale">Hide stale hazards (unverified &gt; 72h)</button>
@@ -382,6 +383,7 @@
         { h: 'Reported', f: (r) => fmt(r.reported_at) },
         { h: 'Confirmed', f: (r) => `${verif.get(r.id) || 0} verified · ${clears.get(r.id) || 0} clear votes` },
         { h: 'Status', f: (r) => (r.status === 'expired' ? badge('expired', 'amber') : r.shared ? badge('visible', 'blue') : badge('hidden')) },
+        { h: 'Photos', f: (r) => (photos.get(r.id) ? `<button class="btn small-btn" data-act="hazard-photos" data-id="${esc(r.id)}">View ${photos.get(r.id)}</button>` : '—') },
         { h: '', cls: 'actions', f: (r) => `<button class="btn small-btn" data-act="${r.shared ? 'hide-hazard' : 'show-hazard'}" data-id="${esc(r.id)}">${r.shared ? 'Hide' : 'Restore'}</button>
           <button class="btn small-btn danger" data-act="delete-row" data-table="hazards" data-id="${esc(r.id)}">Delete</button>` },
       ], list, 'No hazard reports.');
@@ -465,6 +467,31 @@
     ], rows, 'No flagged users. 🎉');
   }
 
+  // ================================================ PAGE: prize disputes
+  async function renderPrizes(page) {
+    page.innerHTML = `<p class="muted small">A winner pressed “Not received” after the creator marked the prize as paid. Check the receipt, then rule: <b>Not paid</b> removes the paid mark so the creator must send it again (and blocks new prize challenges until then); <b>Was paid</b> closes the case as paid.</p><div id="list"></div>`;
+    await drawPrizes();
+  }
+  async function drawPrizes() {
+    const { rows, count } = await fetchPage('prize_disputes', { order: 'created_at', page: view.page });
+    await loadPeople(rows.flatMap((r) => [r.winner_user_id, r.creator_id]));
+    const ids = [...new Set(rows.map((r) => r.challenge_id))], titles = {};
+    if (ids.length) {
+      const { data } = await sb.from('challenges').select('id, title, prize_amount').in('id', ids);
+      (data || []).forEach((c) => (titles[c.id] = c));
+    }
+    const st = (r) => (r.status === 'open' ? badge('open', 'amber') : r.status === 'upheld' ? badge('not paid', 'red') : badge('was paid', 'green'));
+    $('#list').innerHTML = table([
+      { h: 'Challenge', cls: 'wrap', f: (r) => `<b>${esc(titles[r.challenge_id]?.title || '—')}</b><div class="muted small">${titles[r.challenge_id]?.prize_amount ? '₱' + Number(titles[r.challenge_id].prize_amount).toLocaleString() : ''}</div>` },
+      { h: 'Winner', f: (r) => who(r.winner_user_id) }, { h: 'Creator', f: (r) => who(r.creator_id) },
+      { h: 'Winner’s note', cls: 'wrap', f: (r) => esc(r.note || '—') },
+      { h: 'Date', f: (r) => fmt(r.created_at) }, { h: 'Status', f: st },
+      { h: '', cls: 'actions', f: (r) => `<button class="btn small-btn" data-act="view-proof" data-id="${esc(r.challenge_id)}" data-user="${esc(r.winner_user_id)}">Receipt</button>` +
+          (r.status === 'open' ? ` <button class="btn small-btn danger" data-act="dispute-upheld" data-id="${esc(r.id)}">Not paid</button>
+          <button class="btn small-btn ok" data-act="dispute-rejected" data-id="${esc(r.id)}">Was paid</button>` : '') },
+    ], rows, 'No prize disputes. 🎉') + pager(count, view.page);
+  }
+
   // ===================================================== PAGE: audit log
   const ago = (iso) => { if (!iso) return ''; const s = Math.max(0, (Date.now() - new Date(iso)) / 1000); if (s < 60) return 'just now'; const u = [[60, 'minute'], [3600, 'hour'], [86400, 'day'], [2592000, 'month'], [31536000, 'year']]; let k = 0; while (k + 1 < u.length && s >= u[k + 1][0]) k++; const n = Math.floor(s / u[k][0]); return `${n} ${u[k][1]}${n > 1 ? 's' : ''} ago`; };
   const TARGET_LABEL = { 'auth.users': 'User ID', profiles: 'User ID', activities: 'Activity ID', community_posts: 'Post ID', comments: 'Comment ID', hazards: 'Hazard ID', challenges: 'Challenge ID', reports: 'Report ID' };
@@ -488,7 +515,7 @@
 
   const renderers = {
     dashboard: renderDashboard, users: renderUsers, activities: renderActivities, feed: renderFeed,
-    comments: renderComments, hazards: renderHazards, challenges: renderChallenges, reports: renderReports, flagged: renderFlagged, audit: renderAudit,
+    comments: renderComments, hazards: renderHazards, challenges: renderChallenges, reports: renderReports, flagged: renderFlagged, prizes: renderPrizes, audit: renderAudit,
   };
 
   // ------------------------------------------------------------ actions
@@ -553,6 +580,34 @@
       if (error) return fail(error, 'Failed');
       toast(`${data ?? 0} stale hazard(s) hidden.`); await render();
     },
+    'hazard-photos': async (id) => {
+      const { data, error } = await sb.from('hazard_photos').select('id, path').eq('hazard_id', id).order('created_at');
+      if (error) return fail(error, 'Loading photos');
+      const imgs = [];
+      for (const p of data || []) {
+        const { data: signed } = await sb.storage.from('hazard-photos').createSignedUrl(p.path, 600);
+        if (signed?.signedUrl) imgs.push(`<a href="${esc(signed.signedUrl)}" target="_blank" rel="noopener"><img src="${esc(signed.signedUrl)}" alt="Hazard photo" style="width:180px;height:180px;object-fit:cover;border-radius:10px;margin:4px"></a>`);
+      }
+      openModal(`<h2 style="margin-top:0">Hazard photos</h2><div>${imgs.join('') || '<p class="muted">No photos.</p>'}</div>`);
+    },
+    'view-proof': async (id, btn) => {
+      const { data, error } = await sb.from('challenge_prize_payments').select('proof_url').eq('challenge_id', id).eq('winner_user_id', btn.dataset.user).maybeSingle();
+      if (error) return fail(error, 'Loading receipt');
+      if (!data?.proof_url) return toast('No receipt on file (the paid mark was removed or has no image).');
+      const { data: signed, error: e2 } = await sb.storage.from('prize-proofs').createSignedUrl(data.proof_url, 600);
+      if (e2) return fail(e2, 'Loading receipt');
+      window.open(signed.signedUrl, '_blank', 'noopener');
+    },
+    'dispute-upheld': async (id) => {
+      if (!(await ask('The paid mark is removed, the creator must send the prize again, and cannot create new prize challenges until they do.', { title: 'Rule: prize NOT paid?', okText: 'Not paid', danger: true }))) return;
+      const { error } = await sb.rpc('resolve_prize_dispute', { p_dispute: id, p_upheld: true });
+      if (error) return fail(error, 'Could not rule'); toast('Ruled: not paid.'); await render();
+    },
+    'dispute-rejected': async (id) => {
+      if (!(await ask('The payment is treated as real and confirmed. The winner is notified.', { title: 'Rule: prize WAS paid?', okText: 'Was paid' }))) return;
+      const { error } = await sb.rpc('resolve_prize_dispute', { p_dispute: id, p_upheld: false });
+      if (error) return fail(error, 'Could not rule'); toast('Ruled: paid.'); await render();
+    },
     participants: (id) => showParticipants(id),
     'mark-paid': async (id, btn) => {
       const user = btn.dataset.user;
@@ -563,7 +618,7 @@
     },
   };
   async function refreshList() {
-    const fn = { activities: drawActivities, feed: drawFeed, comments: drawComments, challenges: drawChallenges, reports: drawReports, audit: drawAudit }[view.name];
+    const fn = { activities: drawActivities, feed: drawFeed, comments: drawComments, challenges: drawChallenges, reports: drawReports, prizes: drawPrizes, audit: drawAudit }[view.name];
     if (fn) { try { await fn(); } catch (e) { fail(e, 'Loading'); } }
   }
 

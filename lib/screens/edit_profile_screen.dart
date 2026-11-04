@@ -75,7 +75,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void _snack(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(SnackBar(content: Text(message)));
   }
 
   // ---------------------------------------------------------------- photo

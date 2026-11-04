@@ -11,6 +11,7 @@ import '../models/achievement.dart';
 import '../models/activity.dart';
 import '../providers/activity_provider.dart';
 import '../services/badge_service.dart';
+import '../services/challenge_service.dart';
 import '../widgets/badge_medal.dart';
 import '../widgets/skeleton_views.dart';
 import '../services/community_impact_service.dart';
@@ -51,6 +52,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   static String? _cName, _cEmail, _cSince, _cAvatar;
   static CommunityImpactStats? _cStats;
   static Map<String, int>? _cBadges;
+  static ({int joined, int completed, int won})? _cRecord;
 
   String _name = _cName ?? '';
   String _email = _cEmail ?? '';
@@ -58,6 +60,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? _avatarUrl = _cAvatar;
   CommunityImpactStats? _stats = _cStats;
   Map<String, int>? _badgeStats = _cBadges;
+  ({int joined, int completed, int won})? _record = _cRecord;
   bool _isLoading = _cStats == null;
   bool _offline = false; // profile could not be fetched (no internet): keep the skeleton and retry
   Timer? _retry;
@@ -112,6 +115,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       } catch (_) {
         profileFailed = true;
       }
+      try {
+        _record = await ChallengeService.fetchMyRecord().timeout(const Duration(seconds: 10));
+      } catch (_) {}
       BadgeService.check();
     }
 
@@ -129,6 +135,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _cAvatar = _avatarUrl;
       _cStats = _stats;
       _cBadges = _badgeStats;
+      _cRecord = _record;
     }
     setState(() {
       _isLoading = false;
@@ -421,6 +428,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ],
         ),
+        if (_record != null) ...[
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: _OverviewStat(
+                  icon: Icons.groups_outlined,
+                  iconColor: Colors.blue,
+                  value: '${_record!.joined}',
+                  label: 'Challenges\nJoined',
+                ),
+              ),
+              Expanded(
+                child: _OverviewStat(
+                  icon: Icons.task_alt,
+                  iconColor: Colors.greenAccent,
+                  value: '${_record!.completed}',
+                  label: 'Challenges\nCompleted',
+                ),
+              ),
+              Expanded(
+                child: _OverviewStat(
+                  icon: Icons.emoji_events,
+                  iconColor: const Color(0xffffc247),
+                  value: '${_record!.won}',
+                  label: 'Challenges\nWon',
+                ),
+              ),
+            ],
+          ),
+        ],
         const SizedBox(height: 28),
         if (_stats != null) _CommunityImpactCard(stats: _stats!),
         const SizedBox(height: 28),
@@ -731,46 +769,104 @@ class _BadgeCard extends StatelessWidget {
   void _showDetail(BuildContext context) {
     showDialog(
       context: context,
-      builder: (context) => Dialog(
-        backgroundColor: const Color(0xff141414),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  BadgeMedal(tier: badge.tier, icon: badge.icon, size: 84),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(badge.title, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                        Text(badge.tier.label, style: TextStyle(color: badge.isLocked ? Colors.grey.shade500 : badge.tier.color, fontSize: 12, fontWeight: FontWeight.w600)),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Text(badge.description, style: TextStyle(color: Colors.grey.shade400, fontSize: 13, height: 1.4)),
-              const SizedBox(height: 14),
-              if (badge.remainingToNextTier != null)
-                Text('${badge.remainingToNextTier} more to reach the next tier.', style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600))
-              else
-                const Text("You've reached the top tier on this badge.", style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
-              ),
-            ],
+      builder: (context) {
+        final color = badge.isLocked ? Colors.grey.shade600 : badge.tier.color;
+        final next = badge.nextThreshold;
+        final nextTier = badge.tier.index + 1 < BadgeTier.values.length ? BadgeTier.values[badge.tier.index + 1] : null;
+        final progress = next == null || next <= 0 ? 1.0 : (badge.currentValue / next).clamp(0.0, 1.0);
+        return Dialog(
+          backgroundColor: const Color(0xff141414),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+            side: BorderSide(color: color.withValues(alpha: .35)),
           ),
-        ),
-      ),
+          clipBehavior: Clip.antiAlias,
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.center,
+                colors: [color.withValues(alpha: .18), Colors.transparent],
+              ),
+            ),
+            padding: const EdgeInsets.fromLTRB(24, 28, 24, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                BadgeMedal(tier: badge.tier, icon: badge.icon, size: 104),
+                const SizedBox(height: 16),
+                Text(badge.title, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: .15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: color.withValues(alpha: .5)),
+                  ),
+                  child: Text(badge.tier.label.toUpperCase(), style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1.2)),
+                ),
+                const SizedBox(height: 16),
+                Text(badge.description, textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade400, fontSize: 14, height: 1.4)),
+                const SizedBox(height: 20),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(color: const Color(0xff1c1c1c), borderRadius: BorderRadius.circular(14)),
+                  child: next == null
+                      ? const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.workspace_premium, color: Color(0xffffc107), size: 20),
+                            SizedBox(width: 8),
+                            Text("Top tier reached!", style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700)),
+                          ],
+                        )
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Next: ${nextTier?.label ?? ''}', style: TextStyle(color: Colors.grey.shade400, fontSize: 12, fontWeight: FontWeight.w600)),
+                                Text('${badge.currentValue} / $next', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(6),
+                              child: LinearProgressIndicator(
+                                value: progress,
+                                minHeight: 8,
+                                backgroundColor: Colors.white12,
+                                valueColor: AlwaysStoppedAnimation(nextTier?.color ?? color),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text('${badge.remainingToNextTier} more to go', style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                          ],
+                        ),
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.white10,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Close', style: TextStyle(fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 

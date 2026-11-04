@@ -142,7 +142,7 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() => _isLoadingProfile = false);
 
       ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
         SnackBar(
           content: const Text('Unable to load profile.'),
           backgroundColor: Colors.red.shade700,

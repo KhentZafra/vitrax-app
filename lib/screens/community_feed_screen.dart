@@ -101,7 +101,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   }
 
   Future<void> _refreshNotifCount() async {
-    final n = await FeedNotificationService.unreadCount();
+    final n = await FeedNotificationService.unreadCount(communityOnly: true);
     if (!mounted) return;
     setState(() => _notifCount = n);
   }
@@ -109,7 +109,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   Future<void> _openNotifications() async {
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => FeedNotificationsScreen(items: _items, onCommentCount: _setCommentCount)),
+      MaterialPageRoute(builder: (_) => FeedNotificationsScreen(items: _items, onCommentCount: _setCommentCount, communityOnly: true)),
     );
     if (mounted) _refreshNotifCount();
   }
@@ -251,7 +251,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
     if (!mounted) return;
     if (unshared.isEmpty) {
       ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
         const SnackBar(content: Text('Record an activity first, then share it here.')),
       );
       return;
@@ -280,7 +280,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
       photoUrl = await PhotoUploadService.uploadForActivity(file: details.photoFile!, activityId: chosen.id!);
       if (photoUrl == null && mounted) {
         ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
           const SnackBar(content: Text("Couldn't upload the photo — sharing without it.")),
         );
       }
@@ -295,7 +295,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
       _load();
     } else {
       ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
         const SnackBar(content: Text('Could not share right now, Please try again later.')),
       );
     }
@@ -312,7 +312,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
     if (result == null || !mounted) return;
 
     ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
       const SnackBar(content: Text('Uploading…'), duration: Duration(seconds: 30)),
     );
 
@@ -322,7 +322,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
 
     if (mediaUrl == null) {
       ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
         const SnackBar(content: Text("Couldn't upload, Please check your connection and try again.")),
       );
       return;
@@ -335,7 +335,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
       _load();
     } else {
       ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
         const SnackBar(content: Text('Could not post right now, Please try again later.')),
       );
     }
@@ -812,7 +812,7 @@ class _NewPostSheetState extends State<_NewPostSheet> {
       if (sizeError != null) {
         setState(() => _picking = false);
         ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(sizeError)));
+        ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(SnackBar(content: Text(sizeError)));
         return;
       }
     }

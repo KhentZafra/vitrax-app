@@ -297,7 +297,7 @@ Future<void> showConversationMenu(BuildContext context, ChatConversation c, Futu
 void _snack(ScaffoldMessengerState messenger, String message, {SnackBarAction? action}) {
   messenger.clearSnackBars();
   // Undo bars disappear by themselves after 3 seconds (no countdown shown).
-  messenger.showSnackBar(SnackBar(content: Text(message), action: action, duration: const Duration(seconds: 3), persist: false));
+  messenger..clearSnackBars()..showSnackBar(SnackBar(content: Text(message), action: action, duration: const Duration(seconds: 3), persist: false));
 }
 
 Future<void> _toggleArchive(BuildContext context, ChatConversation c, Future<void> Function() onChanged) async {

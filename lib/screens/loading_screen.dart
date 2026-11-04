@@ -38,7 +38,7 @@ class _LoadingScreenState extends State<LoadingScreen> {
       final navigator = Navigator.of(context);
       await Supabase.instance.client.auth.signOut();
       navigator.pushNamedAndRemoveUntil('/login', (route) => false);
-      messenger.showSnackBar(
+      messenger..clearSnackBars()..showSnackBar(
         const SnackBar(content: Text('Your account has been suspended. Contact the VITRAX team for help.')),
       );
       return;

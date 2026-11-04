@@ -104,10 +104,10 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
     if (success) {
       setState(() => _blockedByMe = !_blockedByMe);
       ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_blockedByMe ? '${widget.otherUserName} is blocked.' : '${widget.otherUserName} is unblocked.')));
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(SnackBar(content: Text(_blockedByMe ? '${widget.otherUserName} is blocked.' : '${widget.otherUserName} is unblocked.')));
     } else {
       ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Something went wrong, Please try again.')));
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text('Something went wrong, Please try again.')));
     }
   }
 
@@ -164,7 +164,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
     final success = await ChatService.reportUser(reportedUserId: widget.otherUserId, conversationId: widget.conversationId, reason: reason);
     if (!mounted) return;
     ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
       SnackBar(content: Text(success ? 'Report submitted. Thank you.' : "Couldn't submit, Please try again.")),
     );
   }
@@ -256,7 +256,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
       setState(() => _pending.removeWhere((p) => p.id == temp.id));
       _controller.text = text; // give it back so they don't lose what they typed
       ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't send, Please check your connection and try again.")));
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text("Couldn't send, Please check your connection and try again.")));
     }
     // On success, the realtime stream (not this call) is what updates
     // _messages — keeps a single source of truth for what's on screen.

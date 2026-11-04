@@ -111,7 +111,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       await _supabase.auth.updateUser(UserAttributes(password: _password.text));
       await _supabase.auth.signOut(); // make them sign in with the new password
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password updated. Please sign in.')));
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text('Password updated. Please sign in.')));
       Navigator.pop(context);
     } on AuthException catch (e) {
       setState(() => _error = e.message);

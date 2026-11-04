@@ -1,9 +1,11 @@
+import '../widgets/confetti_burst.dart';
+import '../widgets/trophy_icon.dart';
 import '../widgets/map_pin_marker.dart';
 import '../widgets/route_end_marker.dart';
 import '../widgets/track_arrow_icon.dart';
 import '../services/offline_hazard_queue.dart';
 import 'dart:async';
-import 'dart:io' show Platform;
+import 'dart:io' show File, Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart' hide ActivityType;
@@ -20,6 +22,9 @@ import '../services/background_guard.dart';
 import '../services/recording_checkpoint.dart';
 import '../services/community_impact_service.dart';
 import '../services/notification_service.dart';
+import '../services/hazard_haptics.dart';
+import '../services/dead_zone_tracker.dart';
+import '../widgets/hazard_photos.dart';
 import '../services/tts_service.dart';
 import '../services/voice_command_service.dart';
 import '../widgets/report_hazard_sheet.dart';
@@ -117,8 +122,49 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
   final List<HazardReport> _hazards = [];
   // Hazards that could not be uploaded (no internet): hazard -> its saved-on-phone key.
   final Map<HazardReport, String> _queuedHazardKey = {};
+
+  // Hazard photos. A hazard is identified by its report time (it stays the
+  // same when the saved copy replaces the local one).
+  String _hKey(HazardReport h) => '${h.reportedAt.microsecondsSinceEpoch}';
+  final Map<String, int> _photoCount = {}; // photos chosen so far, per hazard
+  final Map<String, List<File>> _photosWaiting = {}; // chosen before the hazard finished uploading
+  final Set<String> _hazardUploading = {}; // hazards whose first upload is still running
   HazardReport? _pendingUndo;
   int _undoSecondsLeft = 0;
+
+  // Finds stretches with no mobile data and pins their start and end by itself.
+  DeadZoneTracker? _deadZone;
+
+  void _startDeadZoneTracking() {
+    _deadZone?.dispose();
+    _deadZone = DeadZoneTracker(onDeadZone: _onDeadZoneFound)..start();
+  }
+
+  void _stopDeadZoneTracking() {
+    _deadZone?.dispose();
+    _deadZone = null;
+  }
+
+  /// Signal is back after a stretch without it: record it as a No Signal
+  /// hazard (start, end and length) unless the same stretch is already known.
+  void _onDeadZoneFound(LatLng start, LatLng end, double meters) {
+    if (!mounted || !_isRecording) return;
+    final alreadyKnown = _communityClusters.any((c) => c.type == HazardType.noSignal && Geolocator.distanceBetween(c.center.latitude, c.center.longitude, start.latitude, start.longitude) < 150) ||
+        _hazards.any((h) => h.type == HazardType.noSignal && Geolocator.distanceBetween(h.position.latitude, h.position.longitude, start.latitude, start.longitude) < 150);
+    if (alreadyKnown) return;
+    _reportHazard(
+      HazardType.noSignal,
+      prebuilt: HazardReport(
+        type: HazardType.noSignal,
+        position: start,
+        endPosition: end,
+        lengthMeters: meters,
+        autoDetected: true,
+        reportedAt: DateTime.now(),
+      ),
+    );
+    _showSnack('No signal for about ${meters.round()} m. The start and end were pinned for other riders.');
+  }
 
   // ---- Live proximity hazard confirmation ----
   // Hazard ids already prompted this recording session, so passing the
@@ -299,6 +345,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     _undoTimer?.cancel();
     _gpsWatchdog?.cancel();
     _autoStopTimer?.cancel();
+    _stopDeadZoneTracking();
     _autoStopSecondsLeft.dispose();
     super.dispose();
   }
@@ -489,7 +536,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     required Future<bool> Function() onAction,
   }) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
       SnackBar(
         content: Text(message),
         duration: const Duration(seconds: 6),
@@ -502,7 +549,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    )..clearSnackBars()..showSnackBar(SnackBar(content: Text(message)));
   }
 
   /// Watches for sustained movement while on the pre-start screen and
@@ -664,6 +711,8 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
       _route.clear();
       _hazards.clear();
       _queuedHazardKey.clear();
+      _photoCount.clear();
+      _photosWaiting.clear();
       _communityClusters = [];
     });
     _isStarting = false;
@@ -678,6 +727,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     // ones, in case something above still slipped through.
     _ticker?.cancel();
     _positionSub?.cancel();
+    _startDeadZoneTracking();
 
     _lastTickAt = DateTime.now();
     _ticksSinceCheckpoint = 0;
@@ -849,6 +899,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
           setState(() {
             if (newDistanceMeters != null) _distanceMeters = newDistanceMeters;
             if (newRoutePoint != null) _routePoints.add(newRoutePoint);
+            if (newRoutePoint != null) _deadZone?.onPosition(newRoutePoint);
             _currentSpeedKmh = newSpeedKmh;
             _currentLatLng = latLng;
           });
@@ -1462,6 +1513,8 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     // be seen. The notification is the part that actually reaches the
     // user in that case.
     NotificationService.showStillnessAlert();
+    // Buzz repeatedly so the rider notices even with the phone in a pocket or the sound off.
+    HazardHaptics.startRepeating();
 
     _autoStopTimer?.cancel();
     _autoStopTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -1489,6 +1542,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     _checkInDialogOpen = false;
     _checkInDialogContext = null;
     _stillSince = null; // fresh stillness window either way
+    HazardHaptics.cancel(); // stop the check-in buzz
     NotificationService.cancelStillnessAlert(); // resolved one way or another — clear it so it doesn't linger
 
     if (!mounted) return;
@@ -1536,12 +1590,13 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
   /// (optimistic UI), then persists it to Supabase in the background.
   /// Stays private (not visible to other users) until the activity this
   /// report belongs to is shared — see _shareToCommunity in the modal.
-  Future<void> _reportHazard(HazardType type) async {
-    var report = HazardReport(
-      type: type,
-      position: LatLng(_lastPosition!.latitude, _lastPosition!.longitude),
-      reportedAt: DateTime.now(),
-    );
+  Future<void> _reportHazard(HazardType type, {HazardReport? prebuilt}) async {
+    final report = prebuilt ??
+        HazardReport(
+          type: type,
+          position: LatLng(_lastPosition!.latitude, _lastPosition!.longitude),
+          reportedAt: DateTime.now(),
+        );
 
     setState(() {
       _hazards.add(report);
@@ -1558,7 +1613,10 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
       }
     });
 
+    final hk = _hKey(report);
+    _hazardUploading.add(hk);
     final saved = await HazardService.report(report);
+    _hazardUploading.remove(hk);
     if (!mounted) return;
 
     if (saved != null) {
@@ -1567,11 +1625,14 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
         if (index != -1) _hazards[index] = saved;
         if (_pendingUndo == report) _pendingUndo = saved;
       });
+      // Photos chosen while the report was still uploading.
+      final waiting = _photosWaiting.remove(hk);
+      if (waiting != null && waiting.isNotEmpty) _uploadHazardPhotos(saved.id!, waiting);
     } else if (HazardService.lastReportRateLimited) {
       _showSnack('Report limit reached. You can send up to 10 hazard reports an hour. Try again later.');
     } else {
       // No internet: keep it on the phone and upload it later.
-      final key = await OfflineHazardQueue.enqueueUnsent(report);
+      final key = await OfflineHazardQueue.enqueueUnsent(report, photos: _photosWaiting.remove(hk) ?? const []);
       _queuedHazardKey[report] = key;
       _showSnack('No internet: your hazard report is saved on your phone and will be shared when you are back online.');
     }
@@ -1590,9 +1651,51 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     }
     final queued = _queuedHazardKey.remove(toRemove);
     if (queued != null) OfflineHazardQueue.remove(queued);
+    _photosWaiting.remove(_hKey(toRemove));
+    _photoCount.remove(_hKey(toRemove));
+  }
+
+  /// Uploads photos for a saved hazard; any that fail (no signal) are kept on
+  /// the phone and retried later.
+  Future<void> _uploadHazardPhotos(String hazardId, List<File> files) async {
+    final done = await HazardService.uploadPhotos(hazardId, files);
+    if (done < files.length) {
+      await OfflineHazardQueue.enqueuePhotosOnly(hazardId, files.sublist(done));
+      if (mounted) _showSnack('No signal: ${files.length - done} photo(s) saved on your phone and will upload later.');
+    } else if (mounted) {
+      _showSnack(done == 1 ? 'Photo added to your hazard report.' : '$done photos added to your hazard report.');
+    }
+  }
+
+  /// "Add photos" for one of this recording's hazard reports (up to 5).
+  Future<void> _addHazardPhotos(HazardReport h) async {
+    final hk = _hKey(h);
+    final have = _photoCount[hk] ?? 0;
+    if (have >= HazardService.maxPhotos) {
+      _showSnack('This hazard already has ${HazardService.maxPhotos} photos.');
+      return;
+    }
+    final files = await showHazardPhotoPicker(context, remaining: HazardService.maxPhotos - have);
+    if (files == null || files.isEmpty || !mounted) return;
+    _photoCount[hk] = have + files.length;
+
+    final current = _hazards.firstWhere((x) => _hKey(x) == hk, orElse: () => h);
+    if (current.id != null) {
+      _uploadHazardPhotos(current.id!, files);
+    } else if (_hazardUploading.contains(hk)) {
+      (_photosWaiting[hk] ??= []).addAll(files); // saved when the upload finishes
+      _showSnack('Photos will be added as soon as the report is saved.');
+    } else {
+      final queued = _queuedHazardKey[current];
+      if (queued != null) {
+        await OfflineHazardQueue.addPhotos(queued, files);
+        if (mounted) _showSnack('No signal: photos saved on your phone and will upload with the report.');
+      }
+    }
   }
 
   Future<void> _stopAndSave() async {
+    _stopDeadZoneTracking();
     _positionSub?.cancel();
     _gpsWatchdog?.cancel();
     _ticker?.cancel();
@@ -1631,6 +1734,10 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
       final hazardIdsSnapshot = _hazards
           .where((h) => h.id != null)
           .map((h) => h.id!)
+          .toList();
+      // For the "add photos after the ride" step in the completion modal.
+      final photoTargets = _hazards
+          .map((h) => _HazardPhotoTarget(id: h.id, queueKey: _queuedHazardKey[h], type: h.type, count: _photoCount[_hKey(h)] ?? 0))
           .toList();
 
       // Link (not yet share) these hazards to the saved activity, so
@@ -1687,7 +1794,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
       }
 
       _resetToPreStart();
-      _showCompletionModal(saved, routeSnapshot, [...hazardIdsSnapshot, ...queuedKeys]);
+      _showCompletionModal(saved, routeSnapshot, [...hazardIdsSnapshot, ...queuedKeys], photoTargets);
     } else {
       setState(() => _isSaving = false);
       _showSnack(provider.errorMessage ?? 'Unable to save activity.');
@@ -1718,6 +1825,8 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
       _route.clear();
       _hazards.clear();
       _queuedHazardKey.clear();
+      _photoCount.clear();
+      _photosWaiting.clear();
       _pendingUndo = null;
       _communityClusters = [];
       _sessionPromptedHazardIds.clear();
@@ -1742,6 +1851,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
   Future<void> _confirmExitDuringRecording() async {
     if (!_isRecording) return;
 
+    _deadZone?.pause(true);
     setState(() => _isPaused = true);
 
     final shouldStop = await showDialog<bool>(
@@ -1755,6 +1865,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     if (shouldStop == true) {
       await _stopAndSave(); // handles saving + congratulations modal + reset
     } else {
+      _deadZone?.pause(false);
       setState(() => _isPaused = false); // resume duration where it left off
     }
   }
@@ -1763,6 +1874,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     Activity activity,
     List<LatLng> route,
     List<String> hazardIds,
+    List<_HazardPhotoTarget> photoTargets,
   ) async {
     await showDialog(
       context: context,
@@ -1771,6 +1883,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
         activity: activity,
         route: route,
         hazardIds: hazardIds,
+        photoTargets: photoTargets,
       ),
     );
   }
@@ -2050,6 +2163,19 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
                         .toList(),
                   ),
 
+                  // No-signal stretches (start to end) found automatically or reported.
+                  PolylineLayer(
+                    polylines: [
+                      for (final r in [..._hazards, ..._communityClusters.expand((c) => c.reports)])
+                        if (r.type == HazardType.noSignal && r.endPosition != null)
+                          Polyline(
+                            points: [r.position, r.endPosition!],
+                            color: HazardType.noSignal.color.withValues(alpha: .9),
+                            strokeWidth: 6,
+                          ),
+                    ],
+                  ),
+
                   MarkerLayer(
                     markers: [
                       Marker(
@@ -2065,20 +2191,40 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
                           point: h.position,
                           width: 40,
                           height: 40,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: h.type.color,
-                              border: Border.all(color: Colors.white, width: 2),
-                            ),
-                            child: Icon(
-                              h.type.icon,
-                              color: Colors.white,
-                              size: 18,
+                          child: GestureDetector(
+                            onTap: () => _addHazardPhotos(h),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: h.type.color,
+                                border: Border.all(color: Colors.white, width: 2),
+                              ),
+                              child: Icon(
+                                h.type.icon,
+                                color: Colors.white,
+                                size: 18,
+                              ),
                             ),
                           ),
                         ),
                       ),
+
+                      // End of each known no-signal stretch.
+                      for (final r in [..._hazards, ..._communityClusters.expand((c) => c.reports)])
+                        if (r.type == HazardType.noSignal && r.endPosition != null)
+                          Marker(
+                            point: r.endPosition!,
+                            width: 22,
+                            height: 22,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: HazardType.noSignal.color,
+                                border: Border.all(color: Colors.white, width: 2),
+                              ),
+                              child: const Icon(Icons.flag, color: Colors.white, size: 12),
+                            ),
+                          ),
 
                       // Community clusters — shows a count badge when more
                       // than one report was merged into this pin. Tap for
@@ -2338,6 +2484,22 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
                           child: Text(
                             'Hazard reported successfully!',
                             style: TextStyle(color: Colors.white, fontSize: 14),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            final h = _pendingUndo;
+                            if (h == null) return;
+                            _undoTimer?.cancel();
+                            setState(() => _pendingUndo = null);
+                            _addHazardPhotos(h);
+                          },
+                          child: const Text(
+                            'Add photos',
+                            style: TextStyle(
+                              color: Colors.blue,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                         TextButton(
@@ -2608,15 +2770,26 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
 /// and actions to share to the community feed (which also shares any
 /// hazards reported during this session) or spin the activity into a
 /// challenge.
+/// One hazard reported during the recording, offered for photos after the ride.
+class _HazardPhotoTarget {
+  final String? id; // saved hazard id, or null while it waits to upload
+  final String? queueKey; // offline queue entry, when it has no id yet
+  final HazardType type;
+  int count; // photos added so far
+  _HazardPhotoTarget({required this.id, required this.queueKey, required this.type, required this.count});
+}
+
 class _CompletionModal extends StatefulWidget {
   final Activity activity;
   final List<LatLng> route;
   final List<String> hazardIds;
+  final List<_HazardPhotoTarget> photoTargets;
 
   const _CompletionModal({
     required this.activity,
     required this.route,
     required this.hazardIds,
+    this.photoTargets = const [],
   });
 
   @override
@@ -2631,13 +2804,72 @@ class _CompletionModalState extends State<_CompletionModal> {
   bool _challengeTapped =
       false; // disables the Create a Challenge button after use
 
-  String _durationLabel(Duration d) {
-    final h = d.inHours;
-    final m = d.inMinutes.remainder(60);
-    if (h > 0) {
-      return '$h hour${h == 1 ? '' : 's'}${m > 0 ? ' $m minute${m == 1 ? '' : 's'}' : ''}';
+  /// After the ride: add photos to one of this recording's hazard reports.
+  Future<void> _addPhotosAfterRide(_HazardPhotoTarget t) async {
+    final left = HazardService.maxPhotos - t.count;
+    if (left <= 0) return;
+    final files = await showHazardPhotoPicker(context, remaining: left);
+    if (files == null || files.isEmpty || !mounted) return;
+    var saved = 0;
+    String message;
+    if (t.id != null) {
+      saved = await HazardService.uploadPhotos(t.id!, files);
+      if (saved < files.length) await OfflineHazardQueue.enqueuePhotosOnly(t.id!, files.sublist(saved));
+      message = saved == files.length ? 'Photos added to your hazard report.' : 'No signal: the rest will upload later.';
+    } else if (t.queueKey != null) {
+      await OfflineHazardQueue.addPhotos(t.queueKey!, files);
+      message = 'Photos saved on your phone and will upload with the report.';
+    } else {
+      return;
     }
-    return '$m minute${m == 1 ? '' : 's'}';
+    if (!mounted) return;
+    setState(() => t.count += files.length);
+    ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(SnackBar(content: Text(message)));
+    OfflineHazardQueue.flush();
+  }
+
+  Widget _photoPrompt() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.blue.withValues(alpha: .08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.blue.withValues(alpha: .3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Add photos of the hazards (optional)', style: TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 2),
+          Text('Photos help other riders recognise the problem. You can add up to 5 per hazard.', style: TextStyle(color: Colors.grey.shade400, fontSize: 12, height: 1.35)),
+          const SizedBox(height: 8),
+          for (final t in widget.photoTargets)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Row(
+                children: [
+                  Container(
+                    width: 30,
+                    height: 30,
+                    decoration: BoxDecoration(shape: BoxShape.circle, color: t.type.color.withValues(alpha: .2)),
+                    child: Icon(t.type.icon, color: t.type.color, size: 16),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text('${t.type.label}  •  ${t.count}/${HazardService.maxPhotos} photos', style: const TextStyle(color: Colors.white, fontSize: 13)),
+                  ),
+                  TextButton(
+                    onPressed: t.count >= HazardService.maxPhotos ? null : () => _addPhotosAfterRide(t),
+                    child: Text(t.count == 0 ? 'Add' : 'Add more'),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
   }
 
   Future<void> _shareToCommunity() async {
@@ -2660,7 +2892,7 @@ class _CompletionModalState extends State<_CompletionModal> {
     });
 
     if (!activityShared) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
         const SnackBar(
           content: Text(
             'Could not share right now, Please try again from Recent Activity later.',
@@ -2691,7 +2923,7 @@ class _CompletionModalState extends State<_CompletionModal> {
     // Everything is online now: close this and go back to Home.
     final messenger = ScaffoldMessenger.of(context);
     Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false);
-    messenger.showSnackBar(const SnackBar(content: Text('Synced. Your activity and hazard reports are online.')));
+    messenger..clearSnackBars()..showSnackBar(const SnackBar(content: Text('Synced. Your activity and hazard reports are online.')));
   }
 
   void _createChallenge() {
@@ -2714,372 +2946,264 @@ class _CompletionModalState extends State<_CompletionModal> {
     );
   }
 
+  Widget _notice({required IconData icon, required Color color, required Color textColor, required String text}) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: .35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 17),
+          const SizedBox(width: 10),
+          Expanded(child: Text(text, style: TextStyle(color: textColor, fontSize: 12.5, height: 1.35))),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // Re-resolved every rebuild (context.watch triggers a rebuild on
     // every ActivityProvider change) rather than trusting widget.activity
-    // directly — that field is a snapshot from the moment this modal was
-    // opened, and a background sync retry (see _retrySync and the
-    // pendingSync check in _stopAndSave) can flip pendingSync to false
-    // after that snapshot was taken. Matched by startedAt, not id — a
-    // locally-queued activity's id changes once it syncs.
+    // directly: a background sync can flip pendingSync after this modal
+    // opened. Matched by startedAt, not id, because a locally-queued
+    // activity's id changes once it syncs.
     final provider = context.watch<ActivityProvider>();
     final a = provider.resolveCurrent(widget.activity);
     final hasHazards = widget.hazardIds.isNotEmpty;
+    final n = widget.hazardIds.length;
 
     return Dialog(
-      backgroundColor: const Color(0xff111111),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        // The whole card scrolls together (summary and buttons), so every
-        // button can be reached on any screen or text size.
-        child: SingleChildScrollView(
-          child: Column(
+      backgroundColor: const Color(0xff101216),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(28),
+        side: BorderSide(color: Colors.white.withValues(alpha: .06)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(children: [
+        SingleChildScrollView(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-              Container(
-                width: 64,
-                height: 64,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.green,
-                ),
-                child: const Icon(
-                  Icons.emoji_events,
-                  color: Colors.white,
-                  size: 32,
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Congratulations! 🎉',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-
-              if (a.pendingSync)
-                Container(
-                  margin: const EdgeInsets.only(top: 4, bottom: 4),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withValues(alpha: .12),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.cloud_off,
-                        color: Colors.blue,
-                        size: 16,
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          'Saved on your device, Will sync and become shareable once you\'re back online.',
-                          style: TextStyle(
-                            color: Colors.lightBlue.shade200,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-              Text(
-                'You made ${a.distanceKm.toStringAsFixed(2)} km in ${_durationLabel(a.duration)} '
-                'at an average speed of ${a.avgSpeedKmh.toStringAsFixed(1)} km/h!',
-                style: TextStyle(
-                  color: Colors.grey.shade300,
-                  fontSize: 15,
-                  height: 1.4,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 20),
-
-              if (widget.route.length > 1)
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: SizedBox(
-                    height: 160,
-                    child: IgnorePointer(
-                      child: FlutterMap(
-                        options: MapOptions(
-                          initialCameraFit: CameraFit.coordinates(
-                            coordinates: widget.route,
-                            padding: const EdgeInsets.all(24),
-                          ),
-                          interactionOptions: const InteractionOptions(
-                            flags: InteractiveFlag.none,
-                          ),
-                        ),
-                        children: [
-                          TileLayer(
-                            urlTemplate:
-                                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                            userAgentPackageName: 'com.vitrax.app',
-                          ),
-                          PolylineLayer(
-                            polylines: [
-                              Polyline(
-                                points: widget.route,
-                                color: Colors.blue,
-                                strokeWidth: 4,
-                              ),
-                            ],
-                          ),
-                          MarkerLayer(markers: RouteEndMarker.markers(widget.route, a.type)),
-                        ],
-                      ),
+            // ---------------- Header (flat, typographic) ----------------
+            Padding(
+              padding: const EdgeInsets.fromLTRB(22, 22, 22, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Center(child: TrophyIcon(size: 104)),
+                  const SizedBox(height: 10),
+                  const Center(
+                    child: Text(
+                      'Congratulations on reaching this milestone!',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w800, height: 1.25),
                     ),
                   ),
-                ),
-              const SizedBox(height: 20),
-
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _ModalStat(
-                    label: 'Distance',
-                    value: '${a.distanceKm.toStringAsFixed(2)} km',
+                  const SizedBox(height: 18),
+                  Row(children: [
+                    Container(width: 18, height: 3, color: const Color(0xffffb020)),
+                    const SizedBox(width: 8),
+                    Text('SESSION LOGGED', style: TextStyle(color: Colors.grey.shade500, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 2.2)),
+                  ]),
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Flexible(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(a.distanceKm.toStringAsFixed(2), style: const TextStyle(fontFamily: 'Orbitron', color: Colors.white, fontSize: 64, fontWeight: FontWeight.w800, height: 1)),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text('KM', style: TextStyle(fontFamily: 'Orbitron', color: Colors.grey.shade500, fontSize: 18, fontWeight: FontWeight.w700)),
+                    ],
                   ),
-                  _ModalStat(
-                    label: 'Duration',
-                    value: _durationLabel(a.duration),
-                  ),
-                  _ModalStat(
-                    label: 'Avg Speed',
-                    value: '${a.avgSpeedKmh.toStringAsFixed(1)} km/h',
+                  const SizedBox(height: 18),
+                  Container(
+                    decoration: BoxDecoration(border: Border.symmetric(horizontal: BorderSide(color: Colors.white.withValues(alpha: .12)))),
+                    child: IntrinsicHeight(
+                      child: Row(children: [
+                        Expanded(child: _ModalStat(icon: Icons.timer_outlined, label: 'TIME', value: _durationShort(a.duration))),
+                        VerticalDivider(width: 1, color: Colors.white.withValues(alpha: .12)),
+                        Expanded(child: _ModalStat(icon: Icons.speed_rounded, label: 'AVG SPEED', value: '${a.avgSpeedKmh.toStringAsFixed(1)} km/h')),
+                      ]),
+                    ),
                   ),
                 ],
               ),
-              const SizedBox(height: 20),
+            ),
 
-              // ---- Share explanation ----
-              if (hasHazards) ...[
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withValues(alpha: .12),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.shield_outlined, color: Colors.green, size: 16),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          a.pendingSync
-                              ? (widget.hazardIds.length == 1
-                                  ? 'Your hazard report is saved on your phone and will be shared once you are back online.'
-                                  : 'Your ${widget.hazardIds.length} hazard reports are saved on your phone and will be shared once you are back online.')
-                              : (widget.hazardIds.length == 1
-                                  ? 'Your hazard report was shared to keep others safe.'
-                                  : 'Your ${widget.hazardIds.length} hazard reports were shared to keep others safe.'),
-                          style: TextStyle(color: Colors.green.shade200, fontSize: 12),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 10),
-              ],
-              Text(
-                'Share your track with the community so everyone can see your progress.',
-                style: TextStyle(
-                  color: Colors.grey.shade500,
-                  fontSize: 12.5,
-                  height: 1.4,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 10),
-
-              // Sync problem, shown right above the button that was tapped.
-              if (_syncError != null)
-                Container(
-                  width: double.infinity,
-                  margin: const EdgeInsets.only(bottom: 10),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: .14),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.red.withValues(alpha: .5)),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Icon(Icons.wifi_off, color: Colors.redAccent, size: 18),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _syncError!,
-                          style: TextStyle(color: Colors.red.shade200, fontSize: 12.5, height: 1.35),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-              // Highlighted (filled, blue) while actionable — sharing is
-              // what makes hazard reports from this ride visible to other
-              // users, so it's pushed as the primary action. Fades to a
-              // muted outline once done, handing prominence to Done.
-              SizedBox(
-                width: double.infinity,
-                child: _shared
-                    ? OutlinedButton.icon(
-                        onPressed: null,
-                        icon: const Icon(Icons.check, size: 18),
-                        label: const Text('Track Shared'),
-                        style: OutlinedButton.styleFrom(
-                          disabledForegroundColor: Colors.green,
-                          side: const BorderSide(color: Colors.green),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                      )
-                    : ElevatedButton.icon(
-                        onPressed: _isSharing
-                            ? null
-                            : (a.pendingSync
-                                  ? (_isRetryingSync ? null : _retrySync)
-                                  : _shareToCommunity),
-                        icon: (_isSharing || _isRetryingSync)
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : Icon(
-                                a.pendingSync ? Icons.refresh : Icons.share,
-                                size: 18,
-                              ),
-                        label: Text(
-                          a.pendingSync ? 'Retry Sync' : 'Share Your Track',
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+              child: Column(
+                children: [
+                  // ---------------- Route map ----------------
+                  if (widget.route.length > 1) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: SizedBox(
+                        height: 170,
+                        child: IgnorePointer(
+                          child: FlutterMap(
+                            options: MapOptions(
+                              initialCameraFit: CameraFit.coordinates(coordinates: widget.route, padding: const EdgeInsets.all(24)),
+                              interactionOptions: const InteractionOptions(flags: InteractiveFlag.none),
+                            ),
+                            children: [
+                              TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', userAgentPackageName: 'com.vitrax.app'),
+                              PolylineLayer(polylines: [Polyline(points: widget.route, color: Colors.blue, strokeWidth: 4)]),
+                              MarkerLayer(markers: RouteEndMarker.markers(widget.route, a.type)),
+                            ],
                           ),
                         ),
                       ),
-              ),
-              const SizedBox(height: 10),
-              // Also highlighted while available, but tapping it never
-              // affects Done's enabled state — only sharing does.
-              SizedBox(
-                width: double.infinity,
-                child: _challengeTapped
-                    ? OutlinedButton.icon(
-                        onPressed: null,
-                        icon: const Icon(Icons.check, size: 18),
-                        label: const Text('Challenge Created'),
-                        style: OutlinedButton.styleFrom(
-                          disabledForegroundColor: Colors.grey,
-                          side: BorderSide(color: Colors.grey.shade700),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                      )
-                    : ElevatedButton.icon(
-                        onPressed: _createChallenge,
-                        icon: const Icon(Icons.emoji_events_outlined, size: 18),
-                        label: const Text('Create a Challenge'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                      ),
-              ),
-              const SizedBox(height: 10),
-              // Stays disabled/muted until the activity has actually been
-              // shared — Create a Challenge does NOT unlock this, only
-              // sharing does, since that's what makes this ride's hazard
-              // reports visible to other users.
-              //
-              // Exception: if the activity is still pendingSync (recorded
-              // offline, not synced yet), sharing is genuinely impossible
-              // right now — Done stays enabled so the user isn't locked out
-              // of a barrierDismissible: false dialog with no way out. It'll
-              // become shareable later once ActivityProvider syncs it.
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    disabledBackgroundColor: const Color(0xff1a1a1a),
-                    foregroundColor: Colors.white,
-                    disabledForegroundColor: Colors.grey.shade600,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
                     ),
+                    const SizedBox(height: 14),
+                  ],
+
+                  // ---------------- Status notices ----------------
+                  if (a.pendingSync)
+                    _notice(
+                      icon: Icons.cloud_off,
+                      color: Colors.blue,
+                      textColor: Colors.lightBlue.shade200,
+                      text: "Saved on your device. It will sync and become shareable once you're back online.",
+                    ),
+                  if (hasHazards)
+                    _notice(
+                      icon: Icons.shield_outlined,
+                      color: Colors.green,
+                      textColor: Colors.green.shade200,
+                      text: a.pendingSync
+                          ? (n == 1 ? 'Your hazard report is saved on your phone and will be shared once you are back online.' : 'Your $n hazard reports are saved on your phone and will be shared once you are back online.')
+                          : (n == 1 ? 'Your hazard report was shared to keep others safe.' : 'Your $n hazard reports were shared to keep others safe.'),
+                    ),
+                  if (widget.photoTargets.any((t) => t.id != null || t.queueKey != null)) _photoPrompt(),
+                  if (_syncError != null)
+                    _notice(icon: Icons.wifi_off, color: Colors.redAccent, textColor: Colors.red.shade200, text: _syncError!),
+
+                  // ---------------- Actions ----------------
+                  // Share is the primary action: it also makes this ride's
+                  // track visible to others. Fades to a muted outline once done.
+                  SizedBox(
+                    width: double.infinity,
+                    child: _shared
+                        ? OutlinedButton.icon(
+                            onPressed: null,
+                            icon: const Icon(Icons.check, size: 18),
+                            label: const Text('Track shared'),
+                            style: OutlinedButton.styleFrom(
+                              disabledForegroundColor: Colors.green,
+                              side: const BorderSide(color: Colors.green),
+                              padding: const EdgeInsets.symmetric(vertical: 15),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            ),
+                          )
+                        : ElevatedButton.icon(
+                            onPressed: _isSharing ? null : (a.pendingSync ? (_isRetryingSync ? null : _retrySync) : _shareToCommunity),
+                            icon: (_isSharing || _isRetryingSync)
+                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                : Icon(a.pendingSync ? Icons.refresh : Icons.share, size: 18),
+                            label: Text(a.pendingSync ? 'Retry sync' : 'Share your track', style: const TextStyle(fontWeight: FontWeight.w700)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xff22c55e),
+                              foregroundColor: const Color(0xff04210f),
+                              padding: const EdgeInsets.symmetric(vertical: 15),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            ),
+                          ),
                   ),
-                  child: Text(
-                    'Done',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _challengeTapped ? null : _createChallenge,
+                          icon: Icon(_challengeTapped ? Icons.check : Icons.emoji_events_outlined, size: 18),
+                          label: Text(_challengeTapped ? 'Challenge made' : 'Challenge'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xffffb020),
+                            disabledForegroundColor: Colors.grey,
+                            side: BorderSide(color: _challengeTapped ? Colors.grey.shade700 : const Color(0xffffb020)),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white.withValues(alpha: .1),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          child: const Text('Done', style: TextStyle(fontWeight: FontWeight.w700)),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Sharing lets the community see your track. Your start and end stay hidden based on your privacy setting.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 11.5, height: 1.4),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
+        const Positioned.fill(child: ConfettiBurst(count: 90)),
+      ]),
     );
+  }
+
+  /// "1 h 05 m" / "42 m" — short enough for a stat tile.
+  String _durationShort(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60);
+    if (h > 0) return '$h h ${m.toString().padLeft(2, '0')} m';
+    final sec = d.inSeconds.remainder(60);
+    return m > 0 ? '$m m ${sec.toString().padLeft(2, '0')} s' : '$sec s';
   }
 }
 
 class _ModalStat extends StatelessWidget {
+  final IconData icon;
   final String label;
   final String value;
-  const _ModalStat({required this.label, required this.value});
+  const _ModalStat({required this.icon, required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+      child: Column(
+        children: [
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(value, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
           ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
-        ),
-      ],
+          const SizedBox(height: 4),
+          Text(label, style: TextStyle(color: Colors.grey.shade500, fontSize: 10.5, letterSpacing: 1.6, fontWeight: FontWeight.w600)),
+        ],
+      ),
     );
   }
 }
@@ -3403,86 +3527,100 @@ class _CheckInDialog extends StatelessWidget {
 class _StopReasonDialog extends StatelessWidget {
   const _StopReasonDialog();
 
+  // (label, icon, colour)
   static const _reasons = [
-    ('Finished my activity', Icons.flag_outlined),
-    ('Flat tire / mechanical issue', Icons.build_outlined),
-    ('Feeling unwell or injured', Icons.medical_services_outlined),
-    ('Weather conditions', Icons.cloud_outlined),
-    ('Safety or traffic concern', Icons.warning_amber_outlined),
-    ('Other', Icons.more_horiz),
+    ('Finished my activity', Icons.flag_rounded, Color(0xff22c55e)),
+    ('Flat tire / mechanical issue', Icons.build_rounded, Color(0xffff9f1c)),
+    ('Feeling unwell or injured', Icons.medical_services_rounded, Color(0xffef4444)),
+    ('Weather conditions', Icons.cloud_rounded, Color(0xff38bdf8)),
+    ('Safety or traffic concern', Icons.warning_amber_rounded, Color(0xfffacc15)),
+    ('Other', Icons.more_horiz_rounded, Color(0xff94a3b8)),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      backgroundColor: const Color(0xff141414),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
+      backgroundColor: const Color(0xff101216),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(26),
+        side: BorderSide(color: Colors.white.withValues(alpha: .06)),
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(18, 22, 18, 12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'What happened?',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
+            Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.blue.withValues(alpha: .16),
+                  ),
+                  child: const Icon(Icons.help_outline_rounded, color: Color(0xff27c4ff), size: 26),
+                ),
+                const SizedBox(width: 14),
+                const Expanded(
+                  child: Text(
+                    'What happened?',
+                    style: TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 10),
             Text(
-              "This just helps keep your own record, It isn't shared unless you choose to.",
-              style: TextStyle(
-                color: Colors.grey.shade500,
-                fontSize: 12.5,
-                height: 1.3,
-              ),
+              "Pick the closest reason. It stays in your own record and isn't shared unless you choose to.",
+              style: TextStyle(color: Colors.grey.shade500, fontSize: 13, height: 1.4),
             ),
             const SizedBox(height: 16),
             ..._reasons.map(
               (r) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: InkWell(
-                  onTap: () => Navigator.pop(context, r.$1),
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 12,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xff1a1a1a),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(r.$2, color: Colors.blue, size: 18),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            r.$1,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
+                padding: const EdgeInsets.only(bottom: 9),
+                child: Material(
+                  color: Colors.white.withValues(alpha: .05),
+                  borderRadius: BorderRadius.circular(16),
+                  child: InkWell(
+                    onTap: () => Navigator.pop(context, r.$1),
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.white.withValues(alpha: .07)),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 38,
+                            height: 38,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              color: r.$3.withValues(alpha: .16),
                             ),
+                            child: Icon(r.$2, color: r.$3, size: 21),
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Text(r.$1, style: const TextStyle(color: Colors.white, fontSize: 14.5, fontWeight: FontWeight.w600)),
+                          ),
+                          Icon(Icons.chevron_right_rounded, color: Colors.grey.shade600),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
             Align(
-              alignment: Alignment.centerRight,
+              alignment: Alignment.center,
               child: TextButton(
                 onPressed: () => Navigator.pop(context, null),
-                child: Text(
-                  'Skip',
-                  style: TextStyle(color: Colors.grey.shade500),
-                ),
+                child: Text('Skip', style: TextStyle(color: Colors.grey.shade500, fontSize: 14)),
               ),
             ),
           ],
@@ -3554,7 +3692,7 @@ class _LiveClusterDetailSheetState extends State<_LiveClusterDetailSheet> {
       _loadStatus();
     } else {
       ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
         const SnackBar(
           content: Text(
             "Couldn't confirm, You may be the original reporter, or you've already confirmed this one.",
@@ -3573,14 +3711,14 @@ class _LiveClusterDetailSheetState extends State<_LiveClusterDetailSheet> {
     if (success) {
       _loadStatus();
       ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
         const SnackBar(
           content: Text('Thanks, This helps keep reports trustworthy.'),
         ),
       );
     } else {
       ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
         const SnackBar(
           content: Text(
             "Couldn't confirm, You may be the original reporter, or you've already confirmed this one.",
@@ -3679,6 +3817,15 @@ class _LiveClusterDetailSheetState extends State<_LiveClusterDetailSheet> {
                           ),
                         ],
                       ),
+                      if (r.type == HazardType.noSignal && r.lengthMeters != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            'No signal for about ${r.lengthMeters!.round()} m${r.autoDetected ? ' (measured automatically)' : ''}',
+                            style: TextStyle(color: Colors.grey.shade400, fontSize: 12.5),
+                          ),
+                        ),
+                      if (r.id != null) HazardPhotoStrip(hazardId: r.id!),
                       if (r.id != null) ...[
                         const SizedBox(height: 8),
                         if (_loadingStatus)

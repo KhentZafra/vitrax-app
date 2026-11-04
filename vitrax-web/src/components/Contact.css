@@ -1,0 +1,17 @@
+.contact { padding-top: 32px; }
+.contact__grid { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); gap: 64px; align-items: start; }
+.contact__head { margin: 0; }
+.contact__cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.c-card { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 26px; border: 1px solid var(--rule); border-radius: 20px; background: var(--deck); }
+.c-card__ico { width: 40px; height: 40px; fill: #1f3358; stroke: #2f4a7a; }
+.c-card__ico .hi { fill: var(--volt); stroke: none; }
+.c-card__ico .hi-s { fill: none; stroke: var(--volt); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.c-card__k { color: var(--mute); }
+.c-card__mail { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.c-card__mail a { color: var(--volt-2); word-break: break-all; user-select: all; }
+.c-card__mail a:hover { text-decoration: underline; }
+.c-card__mail button { font-family: var(--f-data); font-size: 12px; padding: 4px 10px; border: 1px solid var(--rule); border-radius: 8px; color: var(--mute); }
+.c-card__mail button:hover { color: var(--ink); border-color: var(--rule-hi); }
+
+@media (max-width: 980px) { .contact__grid { grid-template-columns: 1fr; gap: 36px; } }
+@media (max-width: 520px) { .contact__cards { grid-template-columns: 1fr; } }
