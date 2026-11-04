@@ -195,3 +195,36 @@ td.au-admin .avatar { width: 46px; height: 46px; font-size: 15px; margin-right: 
 #map { position: relative; z-index: 0; isolation: isolate; }
 .modal, .modal.dialog { z-index: 2000; }
 .toast { z-index: 2100; }
+
+/* ---------- New challenge form ---------- */
+.nc { display: grid; gap: 16px; width: 100%; }
+.nc-head { display: flex; gap: 12px; align-items: center; }
+.nc-head .ico { width: 40px; height: 40px; padding: 9px; border-radius: 12px; background: var(--blue-d); color: #6aa2ff; border: 1px solid #1d3a73; flex: none; }
+.nc-head h2 { margin: 0; font-size: 20px; } .nc-head p { margin: 2px 0 0; color: var(--muted); font-size: 12.5px; }
+.nc-sec { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,.02); }
+.nc-sec > h4 { margin: 0; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6aa2ff; }
+.nc-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 560px) { .nc-row { grid-template-columns: 1fr; } }
+.nc label { color: var(--text); font-weight: 600; font-size: 12.5px; }
+.nc label .hint { color: var(--muted); font-weight: 400; }
+.nc input, .nc select, .nc textarea { width: 100%; box-sizing: border-box; }
+.nc textarea { resize: vertical; min-height: 76px; }
+.nc-count { justify-self: end; color: var(--muted); font-size: 11px; margin-top: -6px; }
+.nc-unit { position: relative; }
+.nc-unit input { padding-right: 78px; }
+.nc-unit i { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-style: normal; color: var(--muted); font-size: 12px; pointer-events: none; }
+.nc-seg { display: grid; grid-auto-flow: column; gap: 6px; background: var(--panel2); border: 1px solid var(--line); padding: 4px; border-radius: 12px; }
+.nc-seg button { border: 0; background: transparent; color: var(--muted); padding: 8px 6px; border-radius: 9px; font: inherit; font-weight: 600; cursor: pointer; }
+.nc-seg button.on { background: var(--blue); color: #fff; box-shadow: 0 2px 10px rgba(47,123,255,.35); }
+.nc-prize { position: relative; }
+.nc-prize b { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: #fbbf24; font-size: 16px; }
+.nc-prize input { padding-left: 32px; font-size: 16px; font-weight: 700; }
+.nc-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.nc-chips button { border: 1px solid var(--line); background: var(--panel2); color: var(--text); padding: 5px 12px; border-radius: 999px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.nc-chips button:hover { border-color: var(--blue); color: #6aa2ff; }
+.nc-note { font-size: 12px; color: var(--muted); background: rgba(251,191,36,.07); border: 1px solid rgba(251,191,36,.25); border-radius: 10px; padding: 8px 10px; }
+.nc-sum { font-size: 12.5px; color: var(--muted); padding: 10px 12px; border-radius: 12px; background: var(--blue-d); border: 1px solid #1d3a73; }
+.nc-sum b { color: var(--text); }
+.nc-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.nc-actions .btn { padding: 11px 20px; }
+.nc-actions .primary { min-width: 190px; }

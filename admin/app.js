@@ -616,18 +616,48 @@
       const pad = (n) => String(n).padStart(2, '0');
       const local = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
       const start = new Date(Date.now() + 3600e3), end = new Date(Date.now() + 8 * 86400e3);
-      openModal(`<h2 style="margin-top:0">New official challenge</h2>
-        <form id="nc-form" style="display:grid;gap:10px">
+      openModal(`<form id="nc-form" class="nc">
+        <div class="nc-head">${ICONS.challenges}<div><h2>New official challenge</h2><p>Announced to every user. Anyone can join and compete for the prize.</p></div></div>
+        <div class="nc-sec"><h4>Details</h4>
           <label>Title<input id="nc-title" maxlength="80" required placeholder="e.g. Summer 100 km Challenge"></label>
-          <label>Description<textarea id="nc-desc" rows="3" maxlength="400" placeholder="Tell users why they should join"></textarea></label>
-          <label>Goal type<select id="nc-type"><option value="distance">Distance (km)</option><option value="activity_count">Number of activities</option><option value="duration">Duration (minutes)</option></select></label>
-          <label>Target<input id="nc-target" type="number" min="1" step="any" required placeholder="e.g. 100"></label>
-          <label>Counts which activities<select id="nc-filter"><option value="any">Any</option><option value="run">Running only</option><option value="ride">Cycling only</option></select></label>
-          <label>Starts<input id="nc-start" type="datetime-local" required value="${local(start)}"></label>
-          <label>Ends<input id="nc-end" type="datetime-local" required value="${local(end)}"></label>
-          <label>Prize in ₱ (optional)<input id="nc-prize" type="number" min="0" step="1" placeholder="0 = no prize"></label>
-          <button class="btn primary" type="submit">Publish challenge</button>
-        </form>`);
+          <label>Description <span class="hint">(optional)</span><textarea id="nc-desc" maxlength="400" placeholder="Tell users why they should join"></textarea></label>
+          <div class="nc-count"><span id="nc-cnt">0</span>/400</div>
+        </div>
+        <div class="nc-sec"><h4>Goal</h4>
+          <div class="nc-row">
+            <label>Goal type<select id="nc-type"><option value="distance">Distance</option><option value="activity_count">Number of activities</option><option value="duration">Duration</option></select></label>
+            <label>Target<span class="nc-unit"><input id="nc-target" type="number" min="1" step="any" required placeholder="e.g. 100"><i id="nc-u">km</i></span></label>
+          </div>
+          <label>Counts which activities<div class="nc-seg" id="nc-filter"><button type="button" class="on" data-v="any">Any</button><button type="button" data-v="run">Running</button><button type="button" data-v="ride">Cycling</button></div></label>
+        </div>
+        <div class="nc-sec"><h4>Schedule</h4>
+          <div class="nc-row">
+            <label>Starts<input id="nc-start" type="datetime-local" required value="${local(start)}"></label>
+            <label>Ends<input id="nc-end" type="datetime-local" required value="${local(end)}"></label>
+          </div>
+        </div>
+        <div class="nc-sec"><h4>Prize</h4>
+          <label>Prize amount <span class="hint">(optional)</span><span class="nc-prize"><b>₱</b><input id="nc-prize" type="number" min="0" step="1" placeholder="0"></span></label>
+          <div class="nc-chips" id="nc-chips"><button type="button" data-p="0">No prize</button><button type="button" data-p="100">₱100</button><button type="button" data-p="500">₱500</button><button type="button" data-p="1000">₱1,000</button><button type="button" data-p="5000">₱5,000</button></div>
+          <div class="nc-note" id="nc-note" hidden>You pay the winner by GCash after the challenge ends, then mark the prize as paid. The winner confirms receiving it.</div>
+        </div>
+        <div class="nc-sum" id="nc-sum"></div>
+        <div class="nc-actions"><button class="btn ghost" type="button" id="nc-cancel">Cancel</button><button class="btn primary" type="submit">Publish challenge</button></div>
+      </form>`);
+      const UNITS = { distance: 'km', activity_count: 'activities', duration: 'minutes' };
+      let filter = 'any';
+      const sum = () => {
+        const t = $('#nc-title').value.trim() || 'Untitled', tg = $('#nc-target').value, pr = Number($('#nc-prize').value) || 0;
+        const f = { any: 'any activity', run: 'running', ride: 'cycling' }[filter];
+        $('#nc-sum').innerHTML = `<b>${esc(t)}</b> · reach <b>${esc(tg || '—')} ${UNITS[$('#nc-type').value]}</b> with ${f} · ${pr ? `prize <b>₱${pr.toLocaleString()}</b>` : 'no prize'}`;
+        $('#nc-note').hidden = !pr;
+      };
+      $('#nc-type').onchange = () => { $('#nc-u').textContent = UNITS[$('#nc-type').value]; sum(); };
+      $('#nc-desc').oninput = () => { $('#nc-cnt').textContent = $('#nc-desc').value.length; };
+      $('#nc-filter').onclick = (ev) => { const b = ev.target.closest('button'); if (!b) return; filter = b.dataset.v; [...$('#nc-filter').children].forEach((x) => x.classList.toggle('on', x === b)); sum(); };
+      $('#nc-chips').onclick = (ev) => { const b = ev.target.closest('button'); if (!b) return; $('#nc-prize').value = b.dataset.p === '0' ? '' : b.dataset.p; sum(); };
+      ['#nc-title', '#nc-target', '#nc-prize'].forEach((q) => ($(q).oninput = sum));
+      $('#nc-cancel').onclick = closeModal; sum(); $('#nc-title').focus();
       $('#nc-form').onsubmit = async (ev) => {
         ev.preventDefault();
         const title = $('#nc-title').value.trim(), target = Number($('#nc-target').value);
@@ -638,7 +668,7 @@
         if (!(await ask(`Publish "${title}"${prize ? ` with a ₱${prize.toLocaleString()} prize` : ''}? Every user will be notified.${prize ? ' You will pay the winner by GCash.' : ''}`, { title: 'Publish challenge?', okText: 'Publish' }))) return;
         const { error } = await sb.from('challenges').insert({
           creator_id: me.id, title, description: $('#nc-desc').value.trim() || null,
-          type: $('#nc-type').value, target_value: target, activity_filter: $('#nc-filter').value,
+          type: $('#nc-type').value, target_value: target, activity_filter: filter,
           start_date: s.toISOString(), end_date: e.toISOString(), prize_amount: prize || null, is_official: true,
         });
         if (error) return fail(error, 'Could not create challenge');
