@@ -145,19 +145,34 @@ class HazardReport {
     };
   }
 
+  /// Radius (meters) of the circle drawn for a No Signal area: half the
+  /// distance travelled without signal, never smaller than 40 m, so a short
+  /// dead spot gets a small circle and a long one a big circle.
+  double get zoneRadiusMeters {
+    final half = (lengthMeters ?? 0) / 2;
+    return half < 40 ? 40 : (half > 1500 ? 1500 : half);
+  }
+
   /// Row -> Dart, used when fetching community hazards to display on
   /// other users' maps.
   factory HazardReport.fromMap(Map<String, dynamic> map) {
+    var pos = LatLng((map['lat'] as num).toDouble(), (map['lng'] as num).toDouble());
+    var end = (map['end_lat'] is num && map['end_lng'] is num)
+        ? LatLng((map['end_lat'] as num).toDouble(), (map['end_lng'] as num).toDouble())
+        : null;
+    // Older No Signal rows stored start and end: pin them at the middle instead.
+    if (map['type'] == 'noSignal' && end != null) {
+      pos = LatLng((pos.latitude + end.latitude) / 2, (pos.longitude + end.longitude) / 2);
+      end = null;
+    }
     return HazardReport(
       id: map['id'] as String?,
       type: HazardTypeX.fromString(map['type'] as String),
-      position: LatLng((map['lat'] as num).toDouble(), (map['lng'] as num).toDouble()),
+      position: pos,
       reportedAt: DateTime.parse(map['reported_at'] as String),
       activityId: map['activity_id'] as String?,
       shared: map['shared'] as bool? ?? false,
-      endPosition: (map['end_lat'] is num && map['end_lng'] is num)
-          ? LatLng((map['end_lat'] as num).toDouble(), (map['end_lng'] as num).toDouble())
-          : null,
+      endPosition: end,
       lengthMeters: (map['length_m'] as num?)?.toDouble(),
       autoDetected: map['auto_detected'] as bool? ?? false,
     );

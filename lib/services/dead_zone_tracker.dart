@@ -12,7 +12,9 @@ import '../config/env.dart';
 /// After [failsToStart] failed checks in a row it marks the START of a dead
 /// zone at the position of the first failed check. It then adds up the
 /// distance travelled. When the server is reachable again it marks the END,
-/// and if the stretch was at least [minLengthMeters] long it reports it.
+/// and if the stretch was at least [minLengthMeters] long it reports it as a
+/// CIRCLE: the center of the area without signal and the distance travelled in it
+/// (the app draws a circle whose size follows that length).
 ///
 /// Distances come from the GPS track, so they are approximate (roughly the
 /// distance travelled in [checkEvery] more or less at each end).
@@ -21,7 +23,7 @@ class DeadZoneTracker {
   static const failsToStart = 2;
   static const minLengthMeters = 100.0;
 
-  final void Function(LatLng start, LatLng end, double lengthMeters) onDeadZone;
+  final void Function(LatLng center, double lengthMeters) onDeadZone;
   DeadZoneTracker({required this.onDeadZone});
 
   Timer? _timer;
@@ -35,6 +37,7 @@ class DeadZoneTracker {
   LatLng? _zoneStart;
   LatLng? _zoneLast;
   double _zoneMeters = 0;
+  final List<LatLng> _zonePoints = [];
 
   bool get inDeadZone => _zoneStart != null;
 
@@ -54,7 +57,21 @@ class DeadZoneTracker {
         _zoneMeters += Geolocator.distanceBetween(last.latitude, last.longitude, p.latitude, p.longitude);
       }
       _zoneLast = p;
+      _zonePoints.add(p);
     }
+  }
+
+  /// Middle of the box that contains every point of the stretch.
+  LatLng _center() {
+    var minLat = _zonePoints.first.latitude, maxLat = minLat;
+    var minLng = _zonePoints.first.longitude, maxLng = minLng;
+    for (final p in _zonePoints) {
+      if (p.latitude < minLat) minLat = p.latitude;
+      if (p.latitude > maxLat) maxLat = p.latitude;
+      if (p.longitude < minLng) minLng = p.longitude;
+      if (p.longitude > maxLng) maxLng = p.longitude;
+    }
+    return LatLng((minLat + maxLat) / 2, (minLng + maxLng) / 2);
   }
 
   Future<void> _check() async {
@@ -65,19 +82,25 @@ class DeadZoneTracker {
       final pos = _lastPos;
       if (ok) {
         if (_zoneStart != null && pos != null && _zoneMeters >= minLengthMeters) {
-          onDeadZone(_zoneStart!, pos, _zoneMeters);
+          _zonePoints.add(pos);
+          onDeadZone(_center(), _zoneMeters);
         }
         _fails = 0;
         _firstFailPos = null;
         _zoneStart = null;
         _zoneLast = null;
         _zoneMeters = 0;
+        _zonePoints.clear();
       } else {
         _fails++;
         _firstFailPos ??= pos;
         if (_fails >= failsToStart && _zoneStart == null && _firstFailPos != null) {
           _zoneStart = _firstFailPos;
           _zoneLast = pos;
+          _zonePoints
+            ..clear()
+            ..add(_firstFailPos!);
+          if (pos != null) _zonePoints.add(pos);
           _zoneMeters = pos == null
               ? 0
               : Geolocator.distanceBetween(_firstFailPos!.latitude, _firstFailPos!.longitude, pos.latitude, pos.longitude);
@@ -108,5 +131,6 @@ class DeadZoneTracker {
     _timer = null;
     _zoneStart = null;
     _firstFailPos = null;
+    _zonePoints.clear();
   }
 }

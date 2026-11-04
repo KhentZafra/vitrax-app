@@ -387,10 +387,6 @@ class _RoutesScreenState extends State<RoutesScreen> {
                         const SizedBox(height: 4),
                         Text('Discover, track, and share your journey.', style: TextStyle(color: Colors.grey.shade500, fontSize: 14)),
                         const SizedBox(height: 18),
-                        _buildTierFilterRow(),
-                        const SizedBox(height: 10),
-                        _buildTypeFilter(),
-                        const SizedBox(height: 12),
                         SizedBox(
                           width: double.infinity,
                           child: OutlinedButton.icon(
@@ -405,6 +401,11 @@ class _RoutesScreenState extends State<RoutesScreen> {
                             ),
                           ),
                         ),
+                        const SizedBox(height: 16),
+                        _buildTierFilterRow(),
+                        const SizedBox(height: 10),
+                        _buildTypeFilter(),
+                        const SizedBox(height: 4),
                         _buildLocationFilter(),
                         const SizedBox(height: 16),
                         Row(
@@ -1130,6 +1131,22 @@ class _RouteDetailScreenState extends State<RouteDetailScreen> {
                     ],
                   ),
                   const Positioned(left: 10, top: 10, child: _StartFinishLegend()),
+                  // No Signal areas: a circle sized by the stretch length, under the pins.
+                  if (_showHazards)
+                    CircleLayer(
+                      circles: [
+                        for (final c in _hazardClusters)
+                          if (c.type == HazardType.noSignal)
+                            CircleMarker(
+                              point: c.center,
+                              radius: c.radiusMeters,
+                              useRadiusInMeter: true,
+                              color: HazardType.noSignal.color.withValues(alpha: .18),
+                              borderColor: HazardType.noSignal.color.withValues(alpha: .7),
+                              borderStrokeWidth: 1.5,
+                            ),
+                      ],
+                    ),
                   if (_showHazards)
                     MarkerLayer(
                       markers: _hazardClusters
@@ -1500,7 +1517,7 @@ class _ClusterDetailSheetState extends State<_ClusterDetailSheet> {
                         Padding(
                           padding: const EdgeInsets.only(top: 6),
                           child: Text(
-                            'No signal for about ${r.lengthMeters!.round()} m${r.autoDetected ? ' (measured automatically)' : ''}',
+                            'No signal area of about ${r.lengthMeters!.round()} m${r.autoDetected ? ' (measured automatically)' : ''}',
                             style: TextStyle(color: Colors.grey.shade400, fontSize: 12.5),
                           ),
                         ),

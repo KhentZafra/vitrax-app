@@ -145,25 +145,27 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     _deadZone = null;
   }
 
-  /// Signal is back after a stretch without it: record it as a No Signal
-  /// hazard (start, end and length) unless the same stretch is already known.
-  void _onDeadZoneFound(LatLng start, LatLng end, double meters) {
+  /// Signal is back after a stretch without it: record it as ONE No Signal
+  /// pin at the center of the area. The circle drawn around it grows with the
+  /// length of the stretch. Skipped if the same area is already known.
+  void _onDeadZoneFound(LatLng center, double meters) {
     if (!mounted || !_isRecording) return;
-    final alreadyKnown = _communityClusters.any((c) => c.type == HazardType.noSignal && Geolocator.distanceBetween(c.center.latitude, c.center.longitude, start.latitude, start.longitude) < 150) ||
-        _hazards.any((h) => h.type == HazardType.noSignal && Geolocator.distanceBetween(h.position.latitude, h.position.longitude, start.latitude, start.longitude) < 150);
+    final radius = HazardReport(type: HazardType.noSignal, position: center, lengthMeters: meters, reportedAt: DateTime.now()).zoneRadiusMeters;
+    bool near(LatLng p, double r) => Geolocator.distanceBetween(p.latitude, p.longitude, center.latitude, center.longitude) < (radius > r ? radius : r);
+    final alreadyKnown = _communityClusters.any((c) => c.type == HazardType.noSignal && near(c.center, c.radiusMeters)) ||
+        _hazards.any((h) => h.type == HazardType.noSignal && near(h.position, h.zoneRadiusMeters));
     if (alreadyKnown) return;
     _reportHazard(
       HazardType.noSignal,
       prebuilt: HazardReport(
         type: HazardType.noSignal,
-        position: start,
-        endPosition: end,
+        position: center,
         lengthMeters: meters,
         autoDetected: true,
         reportedAt: DateTime.now(),
       ),
     );
-    _showSnack('No signal for about ${meters.round()} m. The start and end were pinned for other riders.');
+    _showSnack('No signal area of about ${meters.round()} m was pinned for other riders.');
   }
 
   // ---- Live proximity hazard confirmation ----
@@ -2163,15 +2165,18 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
                         .toList(),
                   ),
 
-                  // No-signal stretches (start to end) found automatically or reported.
-                  PolylineLayer(
-                    polylines: [
-                      for (final r in [..._hazards, ..._communityClusters.expand((c) => c.reports)])
-                        if (r.type == HazardType.noSignal && r.endPosition != null)
-                          Polyline(
-                            points: [r.position, r.endPosition!],
-                            color: HazardType.noSignal.color.withValues(alpha: .9),
-                            strokeWidth: 6,
+                  // Your own No Signal areas: a circle that grows with the stretch length.
+                  CircleLayer(
+                    circles: [
+                      for (final h in _hazards)
+                        if (h.type == HazardType.noSignal)
+                          CircleMarker(
+                            point: h.position,
+                            radius: h.zoneRadiusMeters,
+                            useRadiusInMeter: true,
+                            color: HazardType.noSignal.color.withValues(alpha: .18),
+                            borderColor: HazardType.noSignal.color.withValues(alpha: .7),
+                            borderStrokeWidth: 1.5,
                           ),
                     ],
                   ),
@@ -2208,23 +2213,6 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
                           ),
                         ),
                       ),
-
-                      // End of each known no-signal stretch.
-                      for (final r in [..._hazards, ..._communityClusters.expand((c) => c.reports)])
-                        if (r.type == HazardType.noSignal && r.endPosition != null)
-                          Marker(
-                            point: r.endPosition!,
-                            width: 22,
-                            height: 22,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: HazardType.noSignal.color,
-                                border: Border.all(color: Colors.white, width: 2),
-                              ),
-                              child: const Icon(Icons.flag, color: Colors.white, size: 12),
-                            ),
-                          ),
 
                       // Community clusters — shows a count badge when more
                       // than one report was merged into this pin. Tap for
@@ -3008,20 +2996,23 @@ class _CompletionModalState extends State<_CompletionModal> {
                     ),
                   ),
                   const SizedBox(height: 18),
-                  Row(children: [
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                     Container(width: 18, height: 3, color: const Color(0xffffb020)),
-                    const SizedBox(width: 8),
-                    Text('SESSION LOGGED', style: TextStyle(color: Colors.grey.shade500, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 2.2)),
+                    const SizedBox(width: 10),
+                    Text('SESSION LOGGED', style: TextStyle(color: Colors.grey.shade400, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 2.2)),
+                    const SizedBox(width: 10),
+                    Container(width: 18, height: 3, color: const Color(0xffffb020)),
                   ]),
                   const SizedBox(height: 12),
                   Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.baseline,
                     textBaseline: TextBaseline.alphabetic,
                     children: [
                       Flexible(
                         child: FittedBox(
                           fit: BoxFit.scaleDown,
-                          alignment: Alignment.centerLeft,
+                          alignment: Alignment.center,
                           child: Text(a.distanceKm.toStringAsFixed(2), style: const TextStyle(fontFamily: 'Orbitron', color: Colors.white, fontSize: 64, fontWeight: FontWeight.w800, height: 1)),
                         ),
                       ),
@@ -3128,14 +3119,16 @@ class _CompletionModalState extends State<_CompletionModal> {
                   Row(
                     children: [
                       Expanded(
-                        child: OutlinedButton.icon(
+                        child: ElevatedButton.icon(
                           onPressed: _challengeTapped ? null : _createChallenge,
-                          icon: Icon(_challengeTapped ? Icons.check : Icons.emoji_events_outlined, size: 18),
-                          label: Text(_challengeTapped ? 'Challenge made' : 'Challenge'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: const Color(0xffffb020),
+                          icon: Icon(_challengeTapped ? Icons.check : Icons.emoji_events_rounded, size: 18),
+                          label: Text(_challengeTapped ? 'Challenge made' : 'Challenge', style: const TextStyle(fontWeight: FontWeight.w800)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xffFFC83D),
+                            foregroundColor: const Color(0xff1a1200),
+                            disabledBackgroundColor: const Color(0xff2a2a2a),
                             disabledForegroundColor: Colors.grey,
-                            side: BorderSide(color: _challengeTapped ? Colors.grey.shade700 : const Color(0xffffb020)),
+                            elevation: 0,
                             padding: const EdgeInsets.symmetric(vertical: 14),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                           ),
@@ -3146,13 +3139,13 @@ class _CompletionModalState extends State<_CompletionModal> {
                         child: ElevatedButton(
                           onPressed: () => Navigator.pop(context),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white.withValues(alpha: .1),
+                            backgroundColor: const Color(0xff2F7BFF),
                             foregroundColor: Colors.white,
                             elevation: 0,
                             padding: const EdgeInsets.symmetric(vertical: 14),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                           ),
-                          child: const Text('Done', style: TextStyle(fontWeight: FontWeight.w700)),
+                          child: const Text('Done', style: TextStyle(fontWeight: FontWeight.w800)),
                         ),
                       ),
                     ],
@@ -3821,7 +3814,7 @@ class _LiveClusterDetailSheetState extends State<_LiveClusterDetailSheet> {
                         Padding(
                           padding: const EdgeInsets.only(top: 6),
                           child: Text(
-                            'No signal for about ${r.lengthMeters!.round()} m${r.autoDetected ? ' (measured automatically)' : ''}',
+                            'No signal area of about ${r.lengthMeters!.round()} m${r.autoDetected ? ' (measured automatically)' : ''}',
                             style: TextStyle(color: Colors.grey.shade400, fontSize: 12.5),
                           ),
                         ),

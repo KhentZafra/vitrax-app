@@ -74,7 +74,9 @@ class _ReportHazardSheet extends StatelessWidget {
                 mainAxisSpacing: 14,
                 crossAxisSpacing: 14,
                 childAspectRatio: 0.85,
+                // No Signal is detected automatically while recording, not reported by hand.
                 children: HazardType.values
+                    .where((type) => type != HazardType.noSignal)
                     .map((type) => _HazardOption(type: type, onTap: () => Navigator.pop(context, type)))
                     .toList(),
               ),

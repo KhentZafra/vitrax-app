@@ -16,6 +16,18 @@ class HazardCluster {
 
   int get count => reports.length;
 
+  /// A No Signal pin covers the whole area without signal, so its circle is
+  /// at least as big as the largest reported stretch.
+  static double _radiusFor(HazardType type, List<HazardReport> group, double spread) {
+    var r = spread < 30 ? 30.0 : spread;
+    if (type == HazardType.noSignal) {
+      for (final h in group) {
+        if (h.zoneRadiusMeters > r) r = h.zoneRadiusMeters;
+      }
+    }
+    return r;
+  }
+
   /// Groups reports by type, then greedily merges same-type reports within
   /// [thresholdMeters] of a cluster's running centroid. Not a rigorous
   /// clustering algorithm (e.g. no DBSCAN), but simple, fast, and good
@@ -68,7 +80,7 @@ class HazardCluster {
           center: center,
           // Minimum visual radius so a single-report "cluster" still shows
           // a visible circle rather than a zero-radius dot.
-          radiusMeters: radius < 30 ? 30 : radius,
+          radiusMeters: _radiusFor(type, group, radius),
           reports: group,
         ));
       }
