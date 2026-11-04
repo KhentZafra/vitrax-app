@@ -37,6 +37,10 @@ export default function Download() {
             <h2 className="h2">Ready to ride?</h2>
             <p className="lede">Slide to get VITRAX, the same way you start a recording in the app.</p>
             <SlideToDownload />
+            <p className="dl__warn">
+              Your phone may say <b>“File might be harmful”</b>. This is normal for apps installed outside the Play Store.
+              Tap <b>Download anyway</b>, then open the file and choose <b>Install</b>.
+            </p>
           </div>
           <ul className="dl__specs">
             {SPECS.map(([k, v]) => <li key={k}><span>{k}</span><b className="mono">{v}</b></li>)}

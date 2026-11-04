@@ -79,7 +79,7 @@ export const FEATURES = [
 ]
 
 export const INSTALL_STEPS = [
-  { title: 'Download', body: <>Tap <b>Download for Android</b> and wait for the file to finish.</> },
+  { title: 'Download', body: <>Tap <b>Download for Android</b>. If your phone says <b>File might be harmful</b>, tap <b>Download anyway</b>. This is normal outside the Play Store.</> },
   { title: 'Allow install', body: <>If asked, allow <b>Install unknown apps</b> for your browser. This is normal outside the Play Store.</> },
   { title: 'Install', body: <>Open the file and tap <b>Install</b>. If Play Protect warns you, choose <b>Install anyway</b>.</> },
   { title: 'Sign up', body: <>Open VITRAX, create an account and enter the code we email you.</> },
