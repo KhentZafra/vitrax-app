@@ -2,7 +2,7 @@ import { useRef } from 'react'
 import { motion, useMotionValue, useReducedMotion, useScroll, useSpring, useTransform } from 'framer-motion'
 import { APP } from '../data/content.jsx'
 import Contours from './Contours.jsx'
-import HeroPhone from './HeroPhone.jsx'
+import HeroVideo from './HeroVideo.jsx'
 import { DownloadIcon } from './Icons.jsx'
 import './Hero.css'
 
@@ -90,7 +90,7 @@ export default function Hero() {
           transition={{ duration: 1.1, ease: EASE, delay: 0.15 }}
         >
           <motion.div style={{ rotateX, rotateY, y: phoneY, transformPerspective: 1200 }}>
-            <HeroPhone />
+            <HeroVideo />
           </motion.div>
         </motion.div>
       </div>
