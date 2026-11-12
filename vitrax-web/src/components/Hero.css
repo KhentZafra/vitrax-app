@@ -90,10 +90,11 @@
   box-shadow: 0 10px 30px rgba(43, 140, 255, 0.45);
 }
 .hero-video__sound {
-  position: absolute; z-index: 4; left: 50%; bottom: 14px; translate: -50% 0;
-  display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.18); background: rgba(5, 10, 22, 0.72);
+  position: absolute; z-index: 4; top: 12px; right: 12px;
+  display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.22); background: rgba(5, 10, 22, 0.7);
   -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-  color: var(--ink); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap;
+  color: var(--ink); cursor: pointer;
 }
+.hero-video__sound span { display: none; }
 .hero-video__sound:hover { background: rgba(5, 10, 22, 0.9); }

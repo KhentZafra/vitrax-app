@@ -77,7 +77,7 @@ export default function HeroVideo() {
             <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
           </button>
         )}
-        <button type="button" className="hero-video__sound" onClick={toggleSound} aria-label={muted ? 'Turn sound on' : 'Mute the video'}>
+        <button type="button" className="hero-video__sound" onClick={toggleSound} aria-label={muted ? 'Turn sound on' : 'Mute the video'} title={muted ? 'Turn sound on' : 'Mute'}>
           {muted ? <SoundOff /> : <SoundOn />}
           <span>{muted ? 'Tap for sound' : 'Mute'}</span>
         </button>
