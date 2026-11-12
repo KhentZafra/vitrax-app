@@ -80,7 +80,9 @@
 }
 
 /* hero video (replaces the phone mockup) */
-.phone--video { width: 332px; }
+.phone--video { width: 400px; }
+@media (max-width: 980px) { .hero .phone--video { width: 360px; } }
+@media (max-width: 520px) { .hero .phone--video { width: 320px; } }
 .phone .phone__screen--video { width: 100%; height: auto; aspect-ratio: 9 / 16; background: #000; }
 .hero-video { display: block; width: 100%; height: 100%; object-fit: cover; cursor: pointer; }
 .hero-video__play {
