@@ -12,4 +12,8 @@
 .mate b { font-size: 18px; }
 .mate__role { color: var(--mute); font-size: 14.5px; }
 
-@media (max-width: 620px) { .team { grid-template-columns: 1fr; } }
+@media (max-width: 620px) {
+  .team { grid-template-columns: 1fr; }
+  .mate { justify-items: center; text-align: center; }
+  .mate__av { margin-inline: auto; }
+}
