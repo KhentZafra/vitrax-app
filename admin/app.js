@@ -18,6 +18,9 @@
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : '');
   const fmt = (iso) => (iso ? new Date(iso).toLocaleString('en-PH', { timeZone: 'Asia/Manila', dateStyle: 'medium', timeStyle: 'short' }) : '—');
+  // Activity start times are saved by the app as the phone's local clock time labelled as UTC,
+  // so read them back as UTC to show the real Manila time. All other timestamps use fmt().
+  const fmtStarted = (iso) => (iso ? new Date(iso).toLocaleString('en-PH', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'short' }) : '—');
   const dayKey = (iso) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
   const dur = (s) => { s = Math.round(s || 0); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h ? `${h}h ${m}m` : `${m}m ${s % 60}s`; };
   const short = (id) => String(id || '').slice(0, 8);
@@ -292,7 +295,7 @@
       <h3>Latest activities</h3>
       ${table([
         { h: 'Type', f: (a) => esc(a.type) }, { h: 'Distance', f: (a) => `${Number(a.distance_km).toFixed(2)} km` },
-        { h: 'Time', f: (a) => dur(a.duration_seconds) }, { h: 'Started', f: (a) => fmt(a.started_at) }, { h: 'Shared', f: (a) => (a.shared ? 'Yes' : 'No') },
+        { h: 'Time', f: (a) => dur(a.duration_seconds) }, { h: 'Started', f: (a) => fmtStarted(a.started_at) }, { h: 'Shared', f: (a) => (a.shared ? 'Yes' : 'No') },
       ], last || [], 'No activities yet.')}`);
   }
 
@@ -310,7 +313,7 @@
     $('#list').innerHTML = table([
       { h: 'User', f: (r) => who(r.user_id) }, { h: 'Type', f: (r) => esc([r.type, r.subtype].filter(Boolean).join(' · ')) },
       { h: 'Distance', f: (r) => `${Number(r.distance_km).toFixed(2)} km` }, { h: 'Time', f: (r) => dur(r.duration_seconds) },
-      { h: 'Started', f: (r) => fmt(r.started_at) }, { h: 'Location', f: (r) => esc(r.location || '—') },
+      { h: 'Started', f: (r) => fmtStarted(r.started_at) }, { h: 'Location', f: (r) => esc(r.location || '—') },
       { h: 'Shared', f: (r) => (r.shared ? badge('shared', 'blue') : badge('private')) },
       { h: 'Caption', cls: 'wrap', f: (r) => esc(r.caption || '') },
       { h: '', cls: 'actions', f: (r) => `<button class="btn small-btn danger" data-act="delete-row" data-table="activities" data-id="${esc(r.id)}">Delete</button>` },
