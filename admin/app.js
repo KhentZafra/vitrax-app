@@ -369,7 +369,9 @@
     const draw = () => {
       const t = $('#h-t').value, list = rows.filter((r) => !t || r.type === t);
       if (map) { map.remove(); map = null; }
-      map = L.map('map').setView([9.65, 123.85], 10);
+      // Keep the admin map on Bohol island only (cannot pan or zoom out to other provinces).
+      const BOHOL = L.latLngBounds([9.45, 123.65], [10.20, 124.62]);
+      map = L.map('map', { maxBounds: BOHOL.pad(0.15), maxBoundsViscosity: 1.0, minZoom: 10 }).fitBounds(BOHOL);
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxZoom: 19 }).addTo(map);
       mapLayer = L.layerGroup().addTo(map);
       const pts = [];
