@@ -19,7 +19,7 @@
   const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : '');
   const fmt = (iso) => (iso ? new Date(iso).toLocaleString('en-PH', { timeZone: 'Asia/Manila', dateStyle: 'medium', timeStyle: 'short' }) : '—');
   // Activity start times are saved by the app as the phone's local clock time labelled as UTC,
-  // so read them back as UTC to show the real Manila time. All other timestamps use fmt().
+  // so read them back as UTC to show the real Manila time. Hazard reported_at is stored the same way. All other timestamps use fmt().
   const fmtStarted = (iso) => (iso ? new Date(iso).toLocaleString('en-PH', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'short' }) : '—');
   const dayKey = (iso) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
   const dur = (s) => { s = Math.round(s || 0); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h ? `${h}h ${m}m` : `${m}m ${s % 60}s`; };
@@ -379,13 +379,13 @@
         if (typeof r.lat !== 'number' || typeof r.lng !== 'number') return;
         pts.push([r.lat, r.lng]);
         L.circleMarker([r.lat, r.lng], { radius: 7, color: '#fff', weight: 1.5, fillColor: r.shared ? '#ef4444' : '#f5a524', fillOpacity: .9 })
-          .bindPopup(`<b>${esc(r.type)}</b><br>${esc(nameOf(r.user_id))}<br>${esc(fmt(r.reported_at))}`).addTo(mapLayer);
+          .bindPopup(`<b>${esc(r.type)}</b><br>${esc(nameOf(r.user_id))}<br>${esc(fmtStarted(r.reported_at))}`).addTo(mapLayer);
       });
       if (pts.length) map.fitBounds(pts, { padding: [30, 30], maxZoom: 15 });
       $('#list').innerHTML = table([
         { h: 'Type', f: (r) => badge(r.type, 'amber') }, { h: 'Reported by', f: (r) => who(r.user_id) },
         { h: 'Location', f: (r) => `<a href="https://www.openstreetmap.org/?mlat=${r.lat}&mlon=${r.lng}#map=17/${r.lat}/${r.lng}" target="_blank" rel="noopener">${Number(r.lat).toFixed(5)}, ${Number(r.lng).toFixed(5)}</a>` },
-        { h: 'Reported', f: (r) => fmt(r.reported_at) },
+        { h: 'Reported', f: (r) => fmtStarted(r.reported_at) },
         { h: 'Confirmed', f: (r) => `${verif.get(r.id) || 0} verified · ${clears.get(r.id) || 0} clear votes` },
         { h: 'Status', f: (r) => (r.status === 'expired' ? badge('expired', 'amber') : r.shared ? badge('visible', 'blue') : badge('hidden')) },
         { h: 'Photos', f: (r) => (photos.get(r.id) ? `<button class="btn small-btn" data-act="hazard-photos" data-id="${esc(r.id)}">View ${photos.get(r.id)}</button>` : '—') },
