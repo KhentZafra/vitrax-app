@@ -1,3 +1,4 @@
+import '../services/stored_time.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -73,7 +74,7 @@ double hazardSeverityWeight(HazardType type) {
 /// auto-expiry timer after 3 "Clear Now" confirmations), which is a
 /// separate feature to build next.
 double hazardRecencyMultiplier(DateTime reportedAt) {
-  final ageDays = DateTime.now().difference(reportedAt).inDays;
+  final ageDays = DateTime.now().difference(clockOf(reportedAt)).inDays;
   if (ageDays > 180) return 0; // treated as expired
   if (ageDays > 60) return 0.5; // fading relevance
   return 1;

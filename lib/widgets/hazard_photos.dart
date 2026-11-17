@@ -138,7 +138,12 @@ class _HazardPhotoPickerState extends State<_HazardPhotoPicker> {
 /// Shows nothing when the hazard has no photos.
 class HazardPhotoStrip extends StatefulWidget {
   final String hazardId;
-  const HazardPhotoStrip({super.key, required this.hazardId});
+
+  /// Big swipeable photo (used where someone needs to recognise the hazard)
+  /// instead of the small thumbnails.
+  final bool large;
+  final double height;
+  const HazardPhotoStrip({super.key, required this.hazardId, this.large = false, this.height = 160});
 
   @override
   State<HazardPhotoStrip> createState() => _HazardPhotoStripState();
@@ -146,6 +151,7 @@ class HazardPhotoStrip extends StatefulWidget {
 
 class _HazardPhotoStripState extends State<HazardPhotoStrip> {
   List<String> _urls = [];
+  int _page = 0;
 
   @override
   void initState() {
@@ -195,6 +201,46 @@ class _HazardPhotoStripState extends State<HazardPhotoStrip> {
   @override
   Widget build(BuildContext context) {
     if (_urls.isEmpty) return const SizedBox.shrink();
+    if (widget.large) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 10),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: SizedBox(
+            height: widget.height,
+            width: double.infinity,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                PageView.builder(
+                  itemCount: _urls.length,
+                  onPageChanged: (i) => setState(() => _page = i),
+                  itemBuilder: (_, i) => GestureDetector(
+                    onTap: () => _open(i),
+                    child: Image.network(
+                      _urls[i],
+                      fit: BoxFit.cover,
+                      loadingBuilder: (context, child, progress) => progress == null ? child : Container(color: Colors.white10, child: const Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)))),
+                      errorBuilder: (context, error, stackTrace) => Container(color: Colors.white10, child: const Icon(Icons.broken_image, color: Colors.white38, size: 32)),
+                    ),
+                  ),
+                ),
+                if (_urls.length > 1)
+                  Positioned(
+                    right: 8,
+                    bottom: 8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                      decoration: BoxDecoration(color: Colors.black.withValues(alpha: .6), borderRadius: BorderRadius.circular(12)),
+                      child: Text('${_page + 1}/${_urls.length}', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.only(top: 8),
       child: SizedBox(

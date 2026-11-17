@@ -1,3 +1,4 @@
+import '../services/stored_time.dart';
 import '../services/offline_hazard_queue.dart';
 import 'package:flutter/foundation.dart';
 import '../services/badge_service.dart';
@@ -253,10 +254,35 @@ class ActivityProvider extends ChangeNotifier {
     }
   }
 
+  /// Deletes one of the user's own activities (for example an accidental
+  /// 0.01 km recording). A recording still waiting to sync is simply removed
+  /// from the phone. Returns false if nothing was deleted.
+  Future<bool> deleteActivity(Activity activity) async {
+    final id = activity.id;
+    if (id == null) return false;
+    try {
+      if (activity.pendingSync) {
+        await OfflineActivityQueue.remove(id);
+        pendingSyncCount = (await OfflineActivityQueue.loadAll()).length;
+      } else {
+        final me = _supabase.auth.currentUser?.id;
+        if (me == null) return false;
+        final rows = await _supabase.from('activities').delete().eq('id', id).eq('user_id', me).select('id');
+        if ((rows as List).isEmpty) return false;
+      }
+      _activities = _activities.where((a) => a.id != id).toList();
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('deleteActivity failed: $e');
+      return false;
+    }
+  }
+
   List<Activity> get thisWeekActivities {
     final now = DateTime.now();
     final startOfWeek = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
-    return _activities.where((a) => a.startedAt.isAfter(startOfWeek)).toList();
+    return _activities.where((a) => clockOf(a.startedAt).isAfter(startOfWeek)).toList();
   }
 
   double get weeklyDistanceKm => thisWeekActivities.fold(0.0, (sum, a) => sum + a.distanceKm);

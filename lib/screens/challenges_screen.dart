@@ -23,6 +23,8 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
   bool _isLoading = true;
   ActivityPreference _pref = ActivityPreference.none;
   final Set<String> _expanded = {};
+  String _type = 'all'; // all | ride | run
+  String _view = 'all'; // all | joined | history
 
   @override
   void initState() {
@@ -66,10 +68,11 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
   Widget build(BuildContext context) {
     // Four clearly different groups: the ones you joined, then open ones you
     // can still join, then ones that have not started, then finished ones.
-    final joined = _challenges.where((c) => c.joinedByMe && !c.hasEnded).toList();
-    final active = _challenges.where((c) => !c.joinedByMe && c.isActive).toList();
-    final upcoming = _challenges.where((c) => !c.joinedByMe && !c.hasStarted).toList();
-    final ended = _challenges.where((c) => c.hasEnded).toList();
+    final shown = _filtered;
+    final joined = _view == 'history' ? <Challenge>[] : shown.where((c) => c.joinedByMe && !c.hasEnded).toList();
+    final active = _view == 'all' ? shown.where((c) => !c.joinedByMe && c.isActive).toList() : <Challenge>[];
+    final upcoming = _view == 'all' ? shown.where((c) => !c.joinedByMe && !c.hasStarted).toList() : <Challenge>[];
+    final ended = shown.where((c) => c.hasEnded).toList();
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -98,7 +101,18 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 180),
                 children: [
                   const _ChallengesBanner(),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 14),
+                  _filterBar(),
+                  const SizedBox(height: 14),
+                  if (_challenges.isNotEmpty && shown.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 40),
+                      child: Column(children: [
+                        Icon(Icons.filter_alt_off_outlined, color: Colors.grey.shade700, size: 38),
+                        const SizedBox(height: 10),
+                        Text(_view == 'history' ? 'No finished challenges in your history yet.' : 'No challenges match this filter.', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade500, fontSize: 14)),
+                      ]),
+                    ),
                   if (_challenges.isEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 50),
@@ -123,6 +137,70 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
   }
 
   static const _collapsedCount = 3;
+
+  /// Type (cycling / running) and view (all / joined / history) applied to the list.
+  List<Challenge> get _filtered => _challenges.where((c) {
+        if (_type != 'all' && c.activityFilter != ChallengeActivityFilter.any && c.activityFilter.value != _type) return false;
+        if (_view == 'joined') return c.joinedByMe;
+        if (_view == 'history') return c.joinedByMe && c.hasEnded;
+        return true;
+      }).toList();
+
+  Widget _filterBar() {
+    Widget pill<T>({required IconData icon, required String label, required T value, required List<(T, String)> items, required void Function(T) onPick, required bool active}) {
+      return PopupMenuButton<T>(
+        onSelected: onPick,
+        color: const Color(0xff10161e),
+        itemBuilder: (_) => [
+          for (final it in items)
+            PopupMenuItem<T>(
+              value: it.$1,
+              child: Row(children: [
+                Icon(it.$1 == value ? Icons.check_circle : Icons.circle_outlined, size: 18, color: it.$1 == value ? _blue : Colors.grey),
+                const SizedBox(width: 10),
+                Text(it.$2, style: const TextStyle(color: Colors.white)),
+              ]),
+            ),
+        ],
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          decoration: BoxDecoration(
+            color: active ? _blue.withValues(alpha: .18) : const Color(0xff0c1624),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: active ? _blue : const Color(0xff1d2a3a)),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 17, color: active ? const Color(0xff6aa2ff) : Colors.grey.shade400),
+            const SizedBox(width: 7),
+            Text(label, style: TextStyle(color: active ? const Color(0xff6aa2ff) : Colors.white, fontSize: 14, fontWeight: FontWeight.w700)),
+            const SizedBox(width: 3),
+            Icon(Icons.keyboard_arrow_down_rounded, size: 20, color: active ? const Color(0xff6aa2ff) : Colors.white),
+          ]),
+        ),
+      );
+    }
+
+    final typeLabel = _type == 'ride' ? 'Cycling' : (_type == 'run' ? 'Running' : 'All activities');
+    final viewLabel = _view == 'joined' ? 'Joined' : (_view == 'history' ? 'My history' : 'All challenges');
+    return Wrap(spacing: 10, runSpacing: 10, children: [
+      pill<String>(
+        icon: _type == 'run' ? Icons.directions_run : (_type == 'ride' ? Icons.pedal_bike : Icons.apps_rounded),
+        label: typeLabel,
+        value: _type,
+        items: const [('all', 'All activities'), ('ride', 'Cycling'), ('run', 'Running')],
+        onPick: (v) => setState(() => _type = v),
+        active: _type != 'all',
+      ),
+      pill<String>(
+        icon: _view == 'history' ? Icons.history : (_view == 'joined' ? Icons.check_circle_outline : Icons.emoji_events_outlined),
+        label: viewLabel,
+        value: _view,
+        items: const [('all', 'All challenges'), ('joined', 'Joined'), ('history', 'My history')],
+        onPick: (v) => setState(() => _view = v),
+        active: _view != 'all',
+      ),
+    ]);
+  }
 
   List<Widget> _section(String title, List<Challenge> unsorted, {required Color color, required IconData icon, required String hint}) {
     // Challenges for the user's chosen activity (cyclist / runner / both) first.

@@ -1,3 +1,4 @@
+import 'dialog_buttons.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -72,7 +73,7 @@ class _ShareOptions extends StatelessWidget {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          DialogSafeButton(label: 'Cancel', onPressed: () => Navigator.pop(ctx, false)),
           TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Reshare')),
         ],
       ),

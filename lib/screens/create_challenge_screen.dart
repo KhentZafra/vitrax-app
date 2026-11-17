@@ -31,6 +31,7 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
   ChallengeActivityFilter _filter = ChallengeActivityFilter.any;
   DateTime _startDate = DateTime.now();
   DateTime _endDate = DateTime.now().add(const Duration(days: 7));
+  TimeOfDay _endTime = const TimeOfDay(hour: 23, minute: 59);
   bool _hasPrize = false;
   bool _submitting = false;
 
@@ -157,6 +158,20 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
 
   DateTime _dayOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 
+  /// The end date plus the chosen end time (11:59 PM by default).
+  DateTime _composedEnd() =>
+      DateTime(_endDate.year, _endDate.month, _endDate.day, _endTime.hour, _endTime.minute, (_endTime.hour == 23 && _endTime.minute == 59) ? 59 : 0);
+
+  Future<void> _pickEndTime() async {
+    final picked = await showTimePicker(context: context, initialTime: _endTime);
+    if (picked == null) return;
+    setState(() {
+      _dateError = null;
+      _formError = null;
+      _endTime = picked;
+    });
+  }
+
   void _showFormError(String message) {
     setState(() => _formError = message);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -188,6 +203,9 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
       hasError = true;
     } else if (_dayOnly(_endDate).isBefore(_dayOnly(_startDate))) {
       _dateError = 'The end date cannot be before the start date.';
+      hasError = true;
+    } else if (!_composedEnd().isAfter(_dayOnly(_startDate) == _dayOnly(DateTime.now()) ? DateTime.now() : _dayOnly(_startDate))) {
+      _dateError = 'The end time must be after the start.';
       hasError = true;
     }
 
@@ -242,7 +260,7 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
       // Starting today means starting right now (real time); a later start
       // begins at the start of that day.
       startDate: _dayOnly(_startDate) == _dayOnly(DateTime.now()) ? DateTime.now() : _dayOnly(_startDate),
-      endDate: DateTime(_endDate.year, _endDate.month, _endDate.day, 23, 59, 59),
+      endDate: _composedEnd(),
       createdAt: DateTime.now(),
       prizeAmount: prizeAmount,
       routePoints: _isRouteMode ? widget.seedActivity!.route : null,
@@ -375,6 +393,17 @@ class _CreateChallengeScreenState extends State<CreateChallengeScreen> {
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton(
+                onPressed: _pickEndTime,
+                style: OutlinedButton.styleFrom(backgroundColor: const Color(0xff0c0f14), side: const BorderSide(color: Colors.white12, width: 1.2), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 18), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+                child: Row(children: [
+                  const Icon(Icons.schedule, color: Colors.white70, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text('Ends at: ${_endTime.format(context)}', style: const TextStyle(color: Colors.white))),
+                  const Icon(Icons.keyboard_arrow_down, color: Colors.white70, size: 20),
+                ]),
               ),
               if (_dateError != null)
                 Padding(

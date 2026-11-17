@@ -1,3 +1,4 @@
+import '../widgets/hazard_response_buttons.dart';
 import '../widgets/confetti_burst.dart';
 import '../widgets/trophy_icon.dart';
 import '../widgets/map_pin_marker.dart';
@@ -1000,6 +1001,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     final zone = <HazardCluster>[
       for (final c in ordered)
         if (distTo(c) <= (c.radiusMeters > _proximityTriggerMeters ? c.radiusMeters : _proximityTriggerMeters) &&
+            c.type != HazardType.noSignal &&
             !_clusterFullyHandled(c) &&
             c.reports.any((r) => r.id != null && !_handledHazardIds.contains(r.id) && !_sessionPromptedHazardIds.contains(r.id)))
           c,
@@ -1063,6 +1065,22 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
           ? cluster.radiusMeters
           : _proximityTriggerMeters;
       if (distance > triggerMeters) continue;
+
+      // No Signal is measured automatically, so nobody is asked to confirm it:
+      // the rider is only told once that they are in such an area.
+      if (cluster.type == HazardType.noSignal) {
+        final k = _clusterKey(cluster);
+        _sessionWarnedHazardKeys.add(k);
+        if (!_sessionInsideAnnouncedKeys.contains(k) && !crowded && !TtsService.isBusy) {
+          _sessionInsideAnnouncedKeys.add(k);
+          const text = 'You are in an area with no signal. Ride carefully.';
+          _showSnack(text);
+          NotificationService.showInsideHazard('no signal');
+          TtsService.speak(text, important: true);
+          return;
+        }
+        continue;
+      }
 
       // Most recent report in the cluster — matches what the manual
       // sheet shows first, and is the single report this prompt acts on.
@@ -1361,7 +1379,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     final out = <MapEntry<double, HazardReport>>[];
     for (final c in _communityClusters) {
       for (final r in c.reports) {
-        if (r.id == null || _handledHazardIds.contains(r.id)) continue;
+        if (r.id == null || _handledHazardIds.contains(r.id) || r.type == HazardType.noSignal) continue;
         final d = Geolocator.distanceBetween(here.latitude, here.longitude, r.position.latitude, r.position.longitude);
         if (d <= _areaCountMeters) out.add(MapEntry(d, r));
       }
@@ -2557,6 +2575,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
                             ),
                           ],
                         ),
+                        if (_proximityPrompt!.id != null) HazardPhotoStrip(key: ValueKey(_proximityPrompt!.id), hazardId: _proximityPrompt!.id!, large: true, height: 110),
                         const SizedBox(height: 10),
                         if (_proximityBusy)
                           const Center(
@@ -3818,8 +3837,8 @@ class _LiveClusterDetailSheetState extends State<_LiveClusterDetailSheet> {
                             style: TextStyle(color: Colors.grey.shade400, fontSize: 12.5),
                           ),
                         ),
-                      if (r.id != null) HazardPhotoStrip(hazardId: r.id!),
-                      if (r.id != null) ...[
+                      if (r.id != null) HazardPhotoStrip(hazardId: r.id!, large: true),
+                      if (r.id != null && r.type != HazardType.noSignal) ...[
                         const SizedBox(height: 8),
                         if (_loadingStatus)
                           const SizedBox(
@@ -3828,90 +3847,14 @@ class _LiveClusterDetailSheetState extends State<_LiveClusterDetailSheet> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         else
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 6,
-                            children: [
-                              OutlinedButton(
-                                onPressed: (verifiedByMe || busy)
-                                    ? null
-                                    : () => _confirmStillHere(r.id!),
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 4,
-                                  ),
-                                  minimumSize: Size.zero,
-                                  side: BorderSide(
-                                    color: verifiedByMe
-                                        ? Colors.blue
-                                        : Colors.white24,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                ),
-                                child: busy
-                                    ? const SizedBox(
-                                        width: 12,
-                                        height: 12,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      )
-                                    : Text(
-                                        verifiedByMe
-                                            ? 'Verified still here'
-                                            : 'Still Here?',
-                                        style: TextStyle(
-                                          color: verifiedByMe
-                                              ? Colors.blue
-                                              : Colors.white70,
-                                          fontSize: 11,
-                                        ),
-                                      ),
-                              ),
-                              OutlinedButton(
-                                onPressed: (clearedByMe || busy)
-                                    ? null
-                                    : () => _confirmClear(r.id!),
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 4,
-                                  ),
-                                  minimumSize: Size.zero,
-                                  side: BorderSide(
-                                    color: clearedByMe
-                                        ? Colors.green
-                                        : Colors.white24,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                ),
-                                child: busy
-                                    ? const SizedBox(
-                                        width: 12,
-                                        height: 12,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      )
-                                    : Text(
-                                        clearedByMe
-                                            ? 'Confirmed $clearCount/3'
-                                            : 'Clear Now ($clearCount/3)',
-                                        style: TextStyle(
-                                          color: clearedByMe
-                                              ? Colors.green
-                                              : Colors.white70,
-                                          fontSize: 11,
-                                        ),
-                                      ),
-                              ),
-                            ],
-                          ),
+                          HazardResponseButtons(
+ verifiedByMe: verifiedByMe,
+ clearedByMe: clearedByMe,
+ busy: busy,
+ clearCount: clearCount,
+ onStillHere: () => _confirmStillHere(r.id!),
+ onClear: () => _confirmClear(r.id!),
+ ),
                       ],
                     ],
                   );
@@ -3920,7 +3863,9 @@ class _LiveClusterDetailSheetState extends State<_LiveClusterDetailSheet> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Tap "Clear Now" if this is gone when you pass by. 3 confirmations from other users removes it automatically.',
+              cluster.type == HazardType.noSignal
+                  ? 'Measured automatically from real connection checks, so it does not need to be confirmed.'
+                  : 'Tap "Clear Now" if this is gone when you pass by. 3 confirmations from other users removes it automatically.',
               style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
             ),
           ],

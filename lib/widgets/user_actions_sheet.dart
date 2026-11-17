@@ -1,3 +1,4 @@
+import 'dialog_buttons.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -122,8 +123,8 @@ class _UserActionsSheetState extends State<_UserActionsSheet> {
             style: TextStyle(color: Colors.grey),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-            TextButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Block', style: TextStyle(color: Colors.red))),
+            DialogSafeButton(label: 'Cancel', onPressed: () => Navigator.pop(dialogContext, false)),
+            DialogDangerButton(label: 'Block', onPressed: () => Navigator.pop(dialogContext, true)),
           ],
         ),
       );

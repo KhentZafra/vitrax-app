@@ -1,3 +1,5 @@
+import '../widgets/dialog_buttons.dart';
+import '../widgets/hazard_response_buttons.dart';
 import '../widgets/hazard_photos.dart';
 import '../widgets/route_end_marker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -235,8 +237,8 @@ class _RoutesScreenState extends State<RoutesScreen> {
           style: TextStyle(color: Colors.grey.shade400, height: 1.4),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove', style: TextStyle(color: Colors.redAccent))),
+          DialogSafeButton(label: 'Cancel', onPressed: () => Navigator.pop(ctx, false)),
+          DialogDangerButton(label: 'Remove', onPressed: () => Navigator.pop(ctx, true)),
         ],
       ),
     );
@@ -265,6 +267,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
           avatar: icon != null ? Icon(icon, size: 16, color: selected ? Colors.white : color) : null,
           label: Text(label),
           selected: selected,
+          showCheckmark: false,
           onSelected: (_) => setState(() => _filterTier = tier),
           backgroundColor: const Color(0xff141414),
           selectedColor: tier == null ? Colors.blue : color.withValues(alpha: .22),
@@ -1521,48 +1524,20 @@ class _ClusterDetailSheetState extends State<_ClusterDetailSheet> {
                             style: TextStyle(color: Colors.grey.shade400, fontSize: 12.5),
                           ),
                         ),
-                      if (r.id != null) HazardPhotoStrip(hazardId: r.id!),
-                      if (r.id != null) ...[
+                      if (r.id != null) HazardPhotoStrip(hazardId: r.id!, large: true),
+                      if (r.id != null && r.type != HazardType.noSignal) ...[
                         const SizedBox(height: 8),
                         if (_loadingStatus)
                           const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
                         else
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 6,
-                            children: [
-                              OutlinedButton(
-                                onPressed: (verifiedByMe || busy) ? null : () => _confirmStillHere(r.id!),
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                  minimumSize: Size.zero,
-                                  side: BorderSide(color: verifiedByMe ? Colors.blue : Colors.white24),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                                ),
-                                child: busy
-                                    ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2))
-                                    : Text(
-                                        verifiedByMe ? 'Verified still here' : 'Still Here?',
-                                        style: TextStyle(color: verifiedByMe ? Colors.blue : Colors.white70, fontSize: 11),
-                                      ),
-                              ),
-                              OutlinedButton(
-                                onPressed: (clearedByMe || busy) ? null : () => _confirmClear(r.id!),
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                  minimumSize: Size.zero,
-                                  side: BorderSide(color: clearedByMe ? Colors.green : Colors.white24),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                                ),
-                                child: busy
-                                    ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2))
-                                    : Text(
-                                        clearedByMe ? 'Confirmed $clearCount/3' : 'Clear Now ($clearCount/3)',
-                                        style: TextStyle(color: clearedByMe ? Colors.green : Colors.white70, fontSize: 11),
-                                      ),
-                              ),
-                            ],
-                          ),
+                          HazardResponseButtons(
+ verifiedByMe: verifiedByMe,
+ clearedByMe: clearedByMe,
+ busy: busy,
+ clearCount: clearCount,
+ onStillHere: () => _confirmStillHere(r.id!),
+ onClear: () => _confirmClear(r.id!),
+ ),
                       ],
                     ],
                   );
@@ -1571,7 +1546,9 @@ class _ClusterDetailSheetState extends State<_ClusterDetailSheet> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Tap "Clear Now" if this is gone when you pass by. 3 confirmations from other users removes it automatically.',
+              widget.cluster.type == HazardType.noSignal
+                  ? 'Measured automatically from real connection checks, so it does not need to be confirmed.'
+                  : 'Tap "Clear Now" if this is gone when you pass by. 3 confirmations from other users removes it automatically.',
               style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
             ),
           ],

@@ -1,6 +1,8 @@
+import '../services/stored_time.dart';
 import '../widgets/route_nav_icon.dart';
 import '../widgets/track_arrow_icon.dart';
 import '../services/badge_service.dart';
+import '../services/update_checker.dart';
 import '../services/feed_notification_service.dart';
 import '../services/table_watcher.dart';
 import 'feed_notifications_screen.dart';
@@ -54,7 +56,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isConnected = true;
   int _notifCount = 0;
   TableWatcher? _notifWatcher;
-  String _filter = 'all'; // all | ride | run (This Week card)
+  String _filter = 'all'; // all | ride | run (This Week and Recent Activity)
 
   @override
   void initState() {
@@ -62,6 +64,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _checkInternet();
     // Anything earned while away (e.g. someone confirmed your hazard)?
     WidgetsBinding.instance.addPostFrameCallback((_) => BadgeService.check());
+    // Offers the newer APK if the website lists a higher build number.
+    WidgetsBinding.instance.addPostFrameCallback((_) => UpdateChecker.check());
     _connectionSub =
         Connectivity().onConnectivityChanged.listen((_) => _checkInternet());
     _refreshNotifCount();
@@ -167,7 +171,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openAllActivities() {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const AllActivitiesScreen()));
+    Navigator.push(context, MaterialPageRoute(builder: (_) => AllActivitiesScreen(type: _filter == 'all' ? null : _filter)));
   }
 
   void _openActivityDetail(Activity activity) {
@@ -230,7 +234,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(height: 16),
                       _buildQuickAccessRow(),
                       const SizedBox(height: 30),
-                      _buildSectionHeaderRow('Recent Activity', onSeeAll: _openAllActivities),
+                      _buildSectionHeaderRow(_filter == 'ride' ? 'Cycling History' : (_filter == 'run' ? 'Running History' : 'Recent Activity'), onSeeAll: _openAllActivities),
+                      const SizedBox(height: 12),
+                      _typeChips(),
                       const SizedBox(height: 14),
                       _buildRecentActivity(activityProvider, isLoading),
                       const SizedBox(height: 24),
@@ -326,7 +332,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final startLast = startOfWeek.subtract(const Duration(days: 7));
     return p.allActivities.where((a) {
       if (_filter != 'all' && a.type.value != _filter) return false;
-      return lastWeek ? (a.startedAt.isAfter(startLast) && a.startedAt.isBefore(startOfWeek)) : a.startedAt.isAfter(startOfWeek);
+      final started = clockOf(a.startedAt);
+      return lastWeek ? (started.isAfter(startLast) && started.isBefore(startOfWeek)) : started.isAfter(startOfWeek);
     }).toList();
   }
 
@@ -564,7 +571,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    final recent = provider.recentActivities(limit: 5);
+    final recent = provider.allActivities.where((a) => _filter == 'all' || a.type.value == _filter).take(5).toList();
 
     if (recent.isEmpty) {
       return Container(
@@ -579,7 +586,7 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Icon(Icons.directions_bike, color: Colors.grey.shade600, size: 36),
             const SizedBox(height: 12),
-            Text('No activities yet', style: TextStyle(color: Colors.grey.shade400, fontSize: 16, fontWeight: FontWeight.w600)),
+            Text(_filter == 'ride' ? 'No cycling activities yet' : (_filter == 'run' ? 'No running activities yet' : 'No activities yet'), style: TextStyle(color: Colors.grey.shade400, fontSize: 16, fontWeight: FontWeight.w600)),
             const SizedBox(height: 4),
             Text('Tap GPS above to record your first ride or run.', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
           ],
@@ -600,6 +607,43 @@ class _HomeScreenState extends State<HomeScreen> {
           onTap: () => _openActivityDetail(activity),
         );
       }).toList(),
+    );
+  }
+
+  // ---------- Sort chips (All / Cycling / Running) ----------
+
+  Widget _typeChips() {
+    Widget chip(String value, String label, IconData icon) {
+      final on = _filter == value;
+      return Padding(
+        padding: const EdgeInsets.only(right: 10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(22),
+          onTap: () => setState(() => _filter = value),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            decoration: BoxDecoration(
+              color: on ? _Palette.accent : const Color(0xff0c1624),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: on ? _Palette.accent : _Palette.border),
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(icon, size: 17, color: on ? Colors.white : Colors.grey.shade500),
+              const SizedBox(width: 6),
+              Text(label, style: TextStyle(color: on ? Colors.white : Colors.grey.shade400, fontSize: 14, fontWeight: FontWeight.w700)),
+            ]),
+          ),
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(children: [
+        chip('all', 'All', Icons.apps_rounded),
+        chip('ride', 'Cycling', Icons.pedal_bike),
+        chip('run', 'Running', Icons.directions_run),
+      ]),
     );
   }
 

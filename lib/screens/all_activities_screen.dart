@@ -18,7 +18,9 @@ class _Palette {
 /// by day (Today, Yesterday, then a weekday + date heading), newest
 /// first — the same order ActivityProvider already loads activities in.
 class AllActivitiesScreen extends StatelessWidget {
-  const AllActivitiesScreen({super.key});
+  /// 'ride' or 'run' to show only that history; null shows everything.
+  final String? type;
+  const AllActivitiesScreen({super.key, this.type});
 
   String _dateHeading(DateTime date) {
     final now = DateTime.now();
@@ -60,13 +62,13 @@ class AllActivitiesScreen extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: _Palette.background,
         elevation: 0,
-        title: const Text('All Activities', style: TextStyle(color: Colors.white)),
+        title: Text(type == 'ride' ? 'Cycling History' : (type == 'run' ? 'Running History' : 'All Activities'), style: const TextStyle(color: Colors.white)),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: SafeArea(
         child: Consumer<ActivityProvider>(
           builder: (context, provider, _) {
-            final activities = provider.allActivities;
+            final activities = provider.allActivities.where((a) => type == null || a.type.value == type).toList();
 
             if (provider.isLoading && activities.isEmpty) {
               return const ListSkeleton();
@@ -82,7 +84,7 @@ class AllActivitiesScreen extends StatelessWidget {
                       Icon(Icons.directions_bike, color: Colors.grey.shade600, size: 40),
                       const SizedBox(height: 12),
                       Text(
-                        'No activities yet',
+                        type == 'ride' ? 'No cycling activities yet' : (type == 'run' ? 'No running activities yet' : 'No activities yet'),
                         style: TextStyle(color: Colors.grey.shade400, fontSize: 16, fontWeight: FontWeight.w600),
                       ),
                       const SizedBox(height: 4),

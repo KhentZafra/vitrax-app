@@ -1,3 +1,4 @@
+import '../widgets/dialog_buttons.dart';
 import '../widgets/route_nav_icon.dart';
 import 'dart:async';
 
@@ -154,8 +155,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         title: const Text('Sign out?', style: TextStyle(color: Colors.white)),
         content: const Text('You can sign back in any time.', style: TextStyle(color: Colors.grey)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Sign Out', style: TextStyle(color: Colors.red))),
+          DialogSafeButton(label: 'Cancel', onPressed: () => Navigator.pop(context, false)),
+          DialogDangerButton(label: 'Sign Out', onPressed: () => Navigator.pop(context, true)),
         ],
       ),
     );

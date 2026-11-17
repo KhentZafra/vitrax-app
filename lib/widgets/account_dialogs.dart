@@ -1,3 +1,4 @@
+import 'dialog_buttons.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -89,7 +90,7 @@ class _DialogShell extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 4),
-            TextButton(onPressed: busy ? null : onCancel, child: const Text('Cancel')),
+            DialogSafeButton(label: 'Cancel', onPressed: busy ? null : onCancel),
           ],
         ),
       ),

@@ -41,6 +41,10 @@ export default function Download() {
               Your phone may say <b>“File might be harmful”</b>. This is normal for apps installed outside the Play Store.
               Tap <b>Download anyway</b>, then open the file and choose <b>Install</b>.
             </p>
+            <p className="dl__warn">
+              <b>Already have VITRAX?</b> Download the same file to update. Android installs it over your current app,
+              and your account and activities stay. You do not need to uninstall first.
+            </p>
           </div>
           <ul className="dl__specs">
             {SPECS.map(([k, v]) => <li key={k}><span>{k}</span><b className="mono">{v}</b></li>)}

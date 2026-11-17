@@ -88,7 +88,7 @@ export default function SlideToDownload() {
         transition={{ duration: 0.5, ease: [0.2, 0.7, 0.2, 1], delay: done ? 0.25 : 0 }}
       >
         <a className="btn btn--primary slide__btn" href={APP.apkUrl} tabIndex={done ? 0 : -1}>
-          <DownloadIcon />Download VITRAX {APP.version} APK
+          <DownloadIcon />Download or update VITRAX {APP.version}
         </a>
         <small>After it downloads, follow the four install steps above.</small>
       </motion.div>

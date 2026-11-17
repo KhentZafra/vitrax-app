@@ -1,3 +1,4 @@
+import 'dialog_buttons.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -94,8 +95,8 @@ class _CommentsSheetState extends State<_CommentsSheet> {
         title: const Text('Delete comment?', style: TextStyle(color: Colors.white)),
         content: const Text('Replies to this comment will be deleted too.', style: TextStyle(color: Colors.white70)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: Colors.red))),
+          DialogSafeButton(label: 'Cancel', onPressed: () => Navigator.pop(ctx, false)),
+          DialogDangerButton(label: 'Delete', onPressed: () => Navigator.pop(ctx, true)),
         ],
       ),
     );

@@ -45,7 +45,6 @@ class CommunityFeedScreen extends StatefulWidget {
 
 class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   int _topTab = 0; // 0 = Feed, 1 = Challenges, 2 = Chat
-  bool _searching = false;
   final _searchController = TextEditingController();
 
   // Remembered between visits so coming back to the feed shows instantly.
@@ -379,12 +378,6 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
             icon: NavBadge(count: _notifCount, child: const Icon(Icons.notifications_none, color: Colors.white)),
             style: IconButton.styleFrom(backgroundColor: const Color(0xff141414), shape: const CircleBorder()),
           ),
-          const SizedBox(width: 8),
-          IconButton(
-            onPressed: () => setState(() => _searching = !_searching),
-            icon: Icon(_searching ? Icons.close : Icons.search, color: Colors.white),
-            style: IconButton.styleFrom(backgroundColor: const Color(0xff141414), shape: const CircleBorder()),
-          ),
         ],
       ),
     );
@@ -425,23 +418,35 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
           children: [
-            if (_searching)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: TextField(
-                  controller: _searchController,
-                  onChanged: (_) => setState(() {}),
-                  style: const TextStyle(color: Colors.white),
-                  decoration: InputDecoration(
-                    hintText: 'Search posts…',
-                    hintStyle: TextStyle(color: Colors.grey.shade600),
-                    filled: true,
-                    fillColor: const Color(0xff141414),
-                    prefixIcon: const Icon(Icons.search, color: Colors.grey),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
-                  ),
+            // Search sits right above the "share" bar, only on the Feed tab.
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: TextField(
+                controller: _searchController,
+                onChanged: (_) => setState(() {}),
+                textInputAction: TextInputAction.search,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  hintText: 'Search posts by name or caption',
+                  hintStyle: TextStyle(color: Colors.grey.shade600),
+                  filled: true,
+                  fillColor: const Color(0xff141414),
+                  prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                  suffixIcon: _searchController.text.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'Clear',
+                          icon: const Icon(Icons.close, color: Colors.grey),
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() {});
+                          },
+                        ),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
                 ),
               ),
+            ),
             _buildComposerBar(),
             const SizedBox(height: 16),
             if (!_isLoading && _visibleItems.isEmpty)

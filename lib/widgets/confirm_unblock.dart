@@ -1,3 +1,4 @@
+import 'dialog_buttons.dart';
 import 'package:flutter/material.dart';
 
 /// Asks "Unblock [name]?" and returns true only if the user confirms.
@@ -12,7 +13,7 @@ Future<bool> confirmUnblock(BuildContext context, String name) async {
         style: TextStyle(color: Colors.grey),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+        DialogSafeButton(label: 'Cancel', onPressed: () => Navigator.pop(dialogContext, false)),
         TextButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Unblock', style: TextStyle(color: Colors.blue))),
       ],
     ),

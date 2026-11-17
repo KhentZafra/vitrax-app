@@ -1,3 +1,4 @@
+import '../widgets/dialog_buttons.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -331,8 +332,8 @@ Future<void> _block(BuildContext context, ChatConversation c, Future<void> Funct
         style: TextStyle(color: Colors.grey),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-        TextButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Block', style: TextStyle(color: Colors.red))),
+        DialogSafeButton(label: 'Cancel', onPressed: () => Navigator.pop(dialogContext, false)),
+        DialogDangerButton(label: 'Block', onPressed: () => Navigator.pop(dialogContext, true)),
       ],
     ),
   );
@@ -355,8 +356,8 @@ Future<void> _delete(BuildContext context, ChatConversation c, Future<void> Func
         style: const TextStyle(color: Colors.grey),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-        TextButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Delete', style: TextStyle(color: Colors.red))),
+        DialogSafeButton(label: 'Cancel', onPressed: () => Navigator.pop(dialogContext, false)),
+        DialogDangerButton(label: 'Delete', onPressed: () => Navigator.pop(dialogContext, true)),
       ],
     ),
   );

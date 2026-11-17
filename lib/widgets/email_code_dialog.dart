@@ -1,3 +1,4 @@
+import 'dialog_buttons.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -185,7 +186,7 @@ class _EmailCodeDialogState extends State<_EmailCodeDialog> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                TextButton(onPressed: _busy ? null : () => Navigator.pop(context, false), child: const Text('Cancel')),
+                DialogSafeButton(label: 'Cancel', onPressed: _busy ? null : () => Navigator.pop(context, false)),
                 TextButton(
                   onPressed: (_cooldown > 0 || _busy) ? null : _resend,
                   child: Text(_cooldown > 0 ? 'Resend (${_cooldown}s)' : 'Resend'),

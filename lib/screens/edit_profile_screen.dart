@@ -1,3 +1,4 @@
+import '../widgets/dialog_buttons.dart';
 import '../widgets/account_dialogs.dart';
 import '../widgets/email_code_dialog.dart';
 import '../services/activity_preference.dart';
@@ -35,6 +36,35 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   bool _isUploadingAvatar = false;
   bool _changed = false; // tells ProfileScreen to reload when we pop
 
+  // What is saved right now, to tell whether there are unsaved edits.
+  String _savedFirst = '';
+  String _savedLast = '';
+  bool _savedCyclist = true;
+  bool _savedRunner = false;
+
+  bool get _hasUnsavedChanges =>
+      !_isLoading &&
+      (_firstController.text.trim() != _savedFirst ||
+          _lastController.text.trim() != _savedLast ||
+          _cyclist != _savedCyclist ||
+          _runner != _savedRunner);
+
+  Future<bool> _confirmDiscard() async {
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xff141414),
+        title: const Text('Discard changes?', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+        content: Text('You have unsaved changes. If you leave now, they will be lost.', style: TextStyle(color: Colors.grey.shade400, height: 1.4)),
+        actions: [
+          DialogSafeButton(label: 'Keep editing', onPressed: () => Navigator.pop(ctx, false)),
+          DialogDangerButton(label: 'Discard', onPressed: () => Navigator.pop(ctx, true)),
+        ],
+      ),
+    );
+    return discard == true;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -67,6 +97,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         _runner = pref.runner;
       }
     } catch (_) {}
+    _savedFirst = _firstController.text.trim();
+    _savedLast = _lastController.text.trim();
+    _savedCyclist = _cyclist;
+    _savedRunner = _runner;
     _email = user.email ?? '';
     if (!mounted) return;
     setState(() => _isLoading = false);
@@ -158,6 +192,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final user = _supabase.auth.currentUser;
     if (user == null) return;
 
+    // Close the keyboard and drop the typing cursor, so the screen reads as
+    // saved/view-only until the person taps a field again.
+    FocusManager.instance.primaryFocus?.unfocus();
     setState(() => _isSaving = true);
     try {
       await _supabase.from('profiles').update({
@@ -172,6 +209,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         'primary_activity': primaryActivity,
       }));
       _changed = true;
+      _savedFirst = first;
+      _savedLast = last;
+      _savedCyclist = _cyclist;
+      _savedRunner = _runner;
       if (!mounted) return;
       _snack('Profile saved.');
     } catch (_) {
@@ -322,8 +363,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             ),
           ),
           actions: [
-            TextButton(onPressed: busy ? null : () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-            TextButton(
+            DialogSafeButton(label: 'Cancel', onPressed: busy ? null : () => Navigator.pop(dialogContext, false)),
+            DialogDangerButton(
+              label: 'Delete forever',
               onPressed: busy
                   ? null
                   : () async {
@@ -356,7 +398,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         });
                       }
                     },
-              child: const Text('Delete forever', style: TextStyle(color: Colors.redAccent)),
             ),
           ],
         ),
@@ -513,8 +554,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   Widget build(BuildContext context) {
     return PopScope(
       canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) Navigator.pop(context, _changed);
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (_hasUnsavedChanges && !_isSaving) {
+          final discard = await _confirmDiscard();
+          if (!discard || !mounted) return;
+        }
+        if (mounted) Navigator.pop(context, _changed);
       },
       child: Scaffold(
         backgroundColor: const Color(0xff050505),

@@ -1,3 +1,4 @@
+import '../widgets/dialog_buttons.dart';
 import '../widgets/route_end_marker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -6,6 +7,8 @@ import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../models/activity.dart';
+import '../providers/activity_provider.dart';
+import 'package:provider/provider.dart';
 
 class _Palette {
   static const background = Color(0xff050505);
@@ -76,6 +79,38 @@ class ActivityDetailScreen extends StatelessWidget {
     }
   }
 
+  Future<void> _confirmDelete(BuildContext context) async {
+    final provider = context.read<ActivityProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xff141414),
+        title: const Text('Delete this activity?', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+        content: Text(
+          activity.shared
+              ? 'It will be removed for good, including from Routes, the Community feed and any challenge it counts toward.'
+              : 'It will be removed from your history for good.',
+          style: TextStyle(color: Colors.grey.shade400, height: 1.4),
+        ),
+        actions: [
+          DialogSafeButton(label: 'Keep', onPressed: () => Navigator.pop(ctx, false)),
+          DialogDangerButton(label: 'Delete', onPressed: () => Navigator.pop(ctx, true)),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final done = await provider.deleteActivity(activity);
+    messenger.clearSnackBars();
+    if (done) {
+      navigator.pop();
+      messenger.showSnackBar(const SnackBar(content: Text('Activity deleted.')));
+    } else {
+      messenger.showSnackBar(const SnackBar(content: Text("Couldn't delete the activity. Please try again.")));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasRoute = _routePoints.length > 1;
@@ -114,6 +149,11 @@ class ActivityDetailScreen extends StatelessWidget {
                       padding: const EdgeInsets.all(8),
                       decoration: const BoxDecoration(color: _Palette.cardAlt, shape: BoxShape.circle),
                       child: Icon(_typeIcon, color: Colors.blue, size: 20),
+                    ),
+                    IconButton(
+                      tooltip: 'Delete activity',
+                      icon: Icon(Icons.delete_outline, color: Colors.red.shade300),
+                      onPressed: () => _confirmDelete(context),
                     ),
                   ],
                 ),

@@ -1,3 +1,4 @@
+import '../widgets/dialog_buttons.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -95,7 +96,7 @@ class BackgroundGuard {
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Not now')),
+            DialogSafeButton(label: 'Not now', onPressed: () => Navigator.pop(ctx, false)),
             ElevatedButton(
               onPressed: () => Navigator.pop(ctx, true),
               style: ElevatedButton.styleFrom(backgroundColor: const Color(0xff3D7DFF), foregroundColor: Colors.white),

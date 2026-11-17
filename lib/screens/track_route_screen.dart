@@ -1,3 +1,4 @@
+import '../config/bohol_bounds.dart';
 import '../widgets/map_pin_marker.dart';
 import '../widgets/route_end_marker.dart';
 import '../widgets/route_nav_icon.dart';
@@ -165,6 +166,9 @@ class _TrackRouteScreenState extends State<TrackRouteScreen> {
               initialCameraFit: _referencePoints.length > 1 ? CameraFit.coordinates(coordinates: _referencePoints, padding: const EdgeInsets.all(40)) : null,
               initialCenter: _referencePoints.isNotEmpty ? _referencePoints.first : const LatLng(9.65, 123.85), // Bohol, as a sane fallback center
               initialZoom: 14,
+              // Browsing is limited to Bohol.
+              cameraConstraint: CameraConstraint.containCenter(bounds: kBoholBounds),
+              minZoom: kBoholMinZoom,
               // A manual pan/zoom means the user wants to look around —
               // stop yanking the camera back to their position until
               // they explicitly ask to re-follow via the FAB below.

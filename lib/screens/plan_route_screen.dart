@@ -1,3 +1,4 @@
+import '../config/bohol_bounds.dart';
 import '../widgets/route_end_marker.dart';
 import '../widgets/route_nav_icon.dart';
 import '../widgets/track_arrow_icon.dart';
@@ -338,6 +339,9 @@ class _PlanRouteScreenState extends State<PlanRouteScreen> {
             options: MapOptions(
               initialCenter: _start ?? const LatLng(9.65, 123.85), // Bohol fallback
               initialZoom: 14,
+              // Browsing is limited to Bohol.
+              cameraConstraint: CameraConstraint.containCenter(bounds: kBoholBounds),
+              minZoom: kBoholMinZoom,
               onTap: _onMapTap,
             ),
             children: [

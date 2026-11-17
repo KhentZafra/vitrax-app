@@ -1,3 +1,4 @@
+import 'stored_time.dart';
 import 'badge_service.dart';
 import 'dart:io';
 
@@ -162,6 +163,26 @@ class ChallengeService {
       // ignore: avoid_print
       print('ChallengeService.leave failed: $e');
       return false;
+    }
+  }
+
+  /// Deletes a challenge the current user created, but only while nobody else
+  /// has joined (the database enforces this too). Returns null on success,
+  /// otherwise a short message to show the user.
+  static Future<String?> deleteMine(String challengeId) async {
+    try {
+      await _supabase.rpc('delete_my_challenge', params: {'p_challenge': challengeId});
+      return null;
+    } catch (e) {
+      final m = e.toString();
+      if (m.contains('others_joined')) {
+        return 'Other people have already joined, so this challenge can no longer be deleted. Contact an admin if there is a problem.';
+      }
+      if (m.contains('not_creator')) return 'Only the creator can delete this challenge.';
+      if (m.contains('not_found')) return 'This challenge no longer exists.';
+      // ignore: avoid_print
+      print('ChallengeService.deleteMine failed: $e');
+      return "Couldn't delete the challenge. Please try again.";
     }
   }
 
@@ -331,8 +352,8 @@ class ChallengeService {
           .select('user_id, distance_km, duration_seconds, type, started_at')
           .eq('shared', true)
           .inFilter('user_id', participantIds)
-          .gte('started_at', challenge.startDate.toUtc().toIso8601String())
-          .lte('started_at', challenge.endDate.add(const Duration(days: 1)).toUtc().toIso8601String());
+          .gte('started_at', clockAsUtc(challenge.startDate).toIso8601String())
+          .lte('started_at', clockAsUtc(challenge.endDate).toIso8601String());
 
       if (challenge.activityFilter != ChallengeActivityFilter.any) {
         query = query.eq('type', challenge.activityFilter == ChallengeActivityFilter.run ? 'run' : 'ride');

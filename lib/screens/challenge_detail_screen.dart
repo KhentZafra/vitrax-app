@@ -1,3 +1,5 @@
+import '../services/stored_time.dart';
+import '../widgets/dialog_buttons.dart';
 import '../widgets/route_nav_icon.dart';
 import '../widgets/route_end_marker.dart';
 import '../widgets/leave_door_icon.dart';
@@ -109,7 +111,8 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
     if (c == null || !mounted) return 0;
 
     final activities = context.read<ActivityProvider>().allActivities.where((a) {
-      final inRange = !a.startedAt.isBefore(c.startDate) && !a.startedAt.isAfter(c.endDate);
+      final started = clockOf(a.startedAt);
+      final inRange = !started.isBefore(c.startDate) && !started.isAfter(c.endDate);
       final matchesType = c.activityFilter == ChallengeActivityFilter.any ||
           (c.activityFilter == ChallengeActivityFilter.run && a.type == ActivityType.run) ||
           (c.activityFilter == ChallengeActivityFilter.ride && a.type == ActivityType.ride);
@@ -165,12 +168,54 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
         title: const Text('Leave this challenge?', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
         content: Text('You will be removed from "${c.title}" and your progress or time on it will be lost.', style: TextStyle(color: Colors.grey.shade400)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Stay')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text('Leave', style: TextStyle(color: Colors.red.shade300))),
+          DialogSafeButton(label: 'Stay', onPressed: () => Navigator.pop(ctx, false)),
+          DialogDangerButton(label: 'Leave', onPressed: () => Navigator.pop(ctx, true)),
         ],
       ),
     );
     if (ok == true && mounted) await _toggleJoin();
+  }
+
+  Future<void> _confirmDelete() async {
+    final c = _challenge;
+    if (c == null) return;
+    if (c.participantCount > 1) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xff141414),
+          title: const Text("Can't delete this challenge", style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+          content: Text('Other people have already joined "${c.title}", so it can no longer be deleted. Contact an admin if there is a problem.', style: TextStyle(color: Colors.grey.shade400)),
+          actions: [DialogSafeButton(label: 'OK', onPressed: () => Navigator.pop(ctx))],
+        ),
+      );
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xff141414),
+        title: const Text('Delete this challenge?', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+        content: Text('"${c.title}" will be removed for good. Nobody else has joined yet.', style: TextStyle(color: Colors.grey.shade400)),
+        actions: [
+          DialogSafeButton(label: 'Keep', onPressed: () => Navigator.pop(ctx, false)),
+          DialogDangerButton(label: 'Delete', onPressed: () => Navigator.pop(ctx, true)),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _busy = true);
+    final error = await ChallengeService.deleteMine(c.id);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    if (error == null) {
+      Navigator.pop(context);
+      messenger.showSnackBar(const SnackBar(content: Text('Challenge deleted.')));
+    } else {
+      messenger.showSnackBar(SnackBar(content: Text(error)));
+    }
   }
 
   Future<void> _uploadMyQr() async {
@@ -222,7 +267,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          DialogSafeButton(label: 'Cancel', onPressed: () => Navigator.pop(context, false)),
           TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Confirm', style: TextStyle(color: Colors.blue))),
         ],
       ),
@@ -300,8 +345,8 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Send report', style: TextStyle(color: Colors.redAccent))),
+          DialogSafeButton(label: 'Cancel', onPressed: () => Navigator.pop(context, false)),
+          DialogDangerButton(label: 'Send report', onPressed: () => Navigator.pop(context, true)),
         ],
       ),
     );
@@ -434,7 +479,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
       ),
     );
     if (!mounted) return;
-    final fresh = context.read<ActivityProvider>().allActivities.where((a) => a.route.length > 1 && a.startedAt.isAfter(launched)).toList();
+    final fresh = context.read<ActivityProvider>().allActivities.where((a) => a.route.length > 1 && clockOf(a.startedAt).isAfter(launched)).toList();
     if (fresh.isEmpty) return;
     final latest = fresh.reduce((a, b) => a.startedAt.isAfter(b.startedAt) ? a : b);
     final submit = await showDialog<bool>(
@@ -447,7 +492,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
           style: TextStyle(color: Colors.grey.shade400),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Not now')),
+          DialogSafeButton(label: 'Not now', onPressed: () => Navigator.pop(ctx, false)),
           TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Submit')),
         ],
       ),
@@ -667,6 +712,12 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xff050505),
         actions: [
+          if (iAmCreator && !_busy)
+            IconButton(
+              tooltip: 'Delete challenge',
+              icon: Icon(Icons.delete_outline, color: Colors.red.shade300),
+              onPressed: _confirmDelete,
+            ),
           if (c.joinedByMe && !c.hasEnded)
             _busy
                 ? const Padding(
@@ -1070,7 +1121,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
               const SizedBox(height: 20),
               _InfoCard(
                 rows: [
-                  _InfoCardRow(icon: Icons.calendar_month_outlined, title: '${DateFormat('MMM d').format(c.startDate)} – ${DateFormat('MMM d, y').format(c.endDate)}', subtitle: 'Challenge Period'),
+                  _InfoCardRow(icon: Icons.calendar_month_outlined, title: '${DateFormat('MMM d').format(c.startDate)} – ${DateFormat('MMM d, y').format(c.endDate)}', subtitle: 'Challenge Period · ends ${DateFormat('h:mm a').format(c.endDate)}'),
                   _InfoCardRow(icon: Icons.groups_outlined, title: '${c.participantCount} participants', subtitle: 'Joined'),
                   _InfoCardRow(
                     icon: Icons.bar_chart_rounded,
