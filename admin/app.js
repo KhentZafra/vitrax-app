@@ -360,6 +360,15 @@
     heavytraffic: { label: 'Heavy traffic', icon: '🚗', color: '#ea580c' },
     nosignal: { label: 'No signal', icon: '📵', color: '#475569' },
   };
+  // Same radius the app draws: No Signal = half the length travelled without signal (40 m to 1500 m); every other hazard = 30 m.
+  const hzRadius = (r) => {
+    if (String(r.type || '').toLowerCase() !== 'nosignal') return 30;
+    const half = (Number(r.length_m) || 0) / 2;
+    return half < 40 ? 40 : (half > 1500 ? 1500 : half);
+  };
+  // Older No Signal rows saved a start and an end point; the app pins them at the middle.
+  const hzPos = (r) => (String(r.type || '').toLowerCase() === 'nosignal' && typeof r.end_lat === 'number' && typeof r.end_lng === 'number')
+    ? [(r.lat + r.end_lat) / 2, (r.lng + r.end_lng) / 2] : [r.lat, r.lng];
   const hzInfo = (t) => HZ[String(t || '').toLowerCase().replace(/[^a-z]/g, '')] || { label: String(t || 'Hazard'), icon: '⚠️', color: '#ef4444' };
   async function renderHazards(page) {
     const { data, error } = await sb.from('hazards').select('*').order('reported_at', { ascending: false }).limit(500);
@@ -376,7 +385,8 @@
     const types = [...new Set(rows.map((r) => r.type))].sort();
     page.innerHTML = `<div class="toolbar"><select id="h-t"><option value="">All types (${rows.length})</option>${types.map((t) => `<option value="${esc(t)}">${hzInfo(t).icon} ${esc(hzInfo(t).label)}</option>`).join('')}</select>
         <button class="btn small-btn" data-act="expire-stale">Hide stale hazards (unverified &gt; 72h)</button>
-        <span class="muted small">Latest 500. Each pin shows its hazard type. Faded pin with a dashed border = hidden from the community.</span></div>
+        <label class="muted small" style="display:inline-flex;align-items:center;gap:5px"><input type="checkbox" id="h-rad" checked> Show radius</label>
+        <span class="muted small">Latest 500. Each pin shows its hazard type. Faded pin with a dashed border = hidden from the community. The circle is the area the hazard covers (30 m, or the dead zone for No Signal).</span></div>
       <div id="h-legend" class="muted small" style="display:flex;flex-wrap:wrap;gap:6px 14px;margin:8px 0"></div>
       <div id="map"></div><div id="list"></div>`;
     const draw = () => {
@@ -393,12 +403,15 @@
       $('#h-legend').innerHTML = Object.keys(counts).sort().map((t) => { const h = hzInfo(t); return `<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:20px;height:20px;border-radius:50%;background:${h.color};display:inline-flex;align-items:center;justify-content:center;font-size:12px">${h.icon}</span>${esc(h.label)} (${counts[t]})</span>`; }).join('') || 'No hazards to show.';
       list.forEach((r) => {
         if (typeof r.lat !== 'number' || typeof r.lng !== 'number') return;
-        pts.push([r.lat, r.lng]);
+        const pos = hzPos(r);
+        pts.push(pos);
         const h = hzInfo(r.type);
+        const rad = hzRadius(r);
+        if ($('#h-rad').checked) L.circle(pos, { radius: rad, color: h.color, weight: 1.5, dashArray: r.shared ? null : '5 5', fillColor: h.color, fillOpacity: r.shared ? 0.18 : 0.08, interactive: false }).addTo(mapLayer);
         const icon = L.divIcon({ className: '', iconSize: [30, 30], iconAnchor: [15, 15], popupAnchor: [0, -14],
           html: `<div style="width:30px;height:30px;border-radius:50%;background:${h.color};border:2px ${r.shared ? 'solid #fff' : 'dashed #f5a524'};${r.shared ? '' : 'opacity:.6;'}display:flex;align-items:center;justify-content:center;font-size:16px;line-height:1;box-shadow:0 1px 4px rgba(0,0,0,.45)">${h.icon}</div>` });
-        L.marker([r.lat, r.lng], { icon, title: h.label })
-          .bindPopup(`<b>${h.icon} ${esc(h.label)}</b><br>${esc(nameOf(r.user_id))}<br>${esc(fmtStarted(r.reported_at))}`).addTo(mapLayer);
+        L.marker(pos, { icon, title: h.label })
+          .bindPopup(`<b>${h.icon} ${esc(h.label)}</b><br>Radius: ${Math.round(rad)} m<br>${esc(nameOf(r.user_id))}<br>${esc(fmtStarted(r.reported_at))}`).addTo(mapLayer);
       });
       if (pts.length) map.fitBounds(pts, { padding: [30, 30], maxZoom: 15 });
       $('#list').innerHTML = table([
@@ -412,7 +425,7 @@
           <button class="btn small-btn danger" data-act="delete-row" data-table="hazards" data-id="${esc(r.id)}">Delete</button>` },
       ], list, 'No hazard reports.');
     };
-    $('#h-t').onchange = draw; draw();
+    $('#h-t').onchange = draw; $('#h-rad').onchange = draw; draw();
   }
 
   // ===================================================== PAGE: challenges
