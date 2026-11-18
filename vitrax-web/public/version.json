@@ -1,7 +1,7 @@
 {
-  "version": "1.0.1",
-  "build": 2,
+  "version": "1.0.2",
+  "build": 3,
   "minBuild": 1,
   "apk": "https://github.com/KhentZafra/vitrax-app/releases/latest/download/vitrax.apk",
-  "notes": "New: the app now tells you when an update is available."
+  "notes": "Fix: walking and slow jogging are now counted fully, so your distance is more accurate."
 }

@@ -105,6 +105,7 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
   DateTime? _startedAt;
   Position? _lastPosition;
   DateTime? _lastFixTime;
+  bool _keepAnchor = false; // true while a step is smaller than GPS noise
   // Live, smoothed current speed — separate from avgSpeed (which is
   // a true cumulative average and intentionally slow to react). This
   // uses a light exponential moving average so it responds quickly to
@@ -882,7 +883,15 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
             // that indicates the user has stopped.
             _trackStillness(impliedSpeedKmh.toDouble());
 
-            if (segment > 2 && impliedSpeedKmh < maxPlausibleSpeedKmh) {
+            // A step only counts once it is bigger than GPS noise. The old
+            // position is kept until then, so slow walking and jogging
+            // (about 1 m per second) add up instead of every tiny step being
+            // thrown away. Noisier GPS needs a bigger step to count.
+            final countThresholdMeters = pos.accuracy * 0.6 > 3.0 ? pos.accuracy * 0.6 : 3.0;
+            final isJump = impliedSpeedKmh >= maxPlausibleSpeedKmh;
+            _keepAnchor = !isJump && segment <= countThresholdMeters;
+
+            if (segment > countThresholdMeters && !isJump) {
               newDistanceMeters = _distanceMeters + segment;
               newRoutePoint = latLng;
               // Light smoothing (70% previous / 30% new reading) so live
@@ -896,7 +905,8 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
               newSpeedKmh = 0.0;
             }
           }
-          _lastPosition = pos;
+          if (!_keepAnchor) _lastPosition = pos;
+          _keepAnchor = false;
           _lastFixTime = DateTime.now();
 
           setState(() {
