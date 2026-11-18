@@ -349,6 +349,18 @@
 
   // ======================================================== PAGE: hazards
   let map, mapLayer;
+  // One icon and colour per hazard type, so the map shows WHAT was reported, not just where.
+  const HZ = {
+    pothole: { label: 'Pothole', icon: '🕳️', color: '#8b5a2b' },
+    roadconstruction: { label: 'Road construction', icon: '🚧', color: '#f59e0b' },
+    flooding: { label: 'Flooding', icon: '🌊', color: '#2563eb' },
+    accident: { label: 'Accident', icon: '💥', color: '#dc2626' },
+    aggressivedogs: { label: 'Aggressive dogs', icon: '🐕', color: '#7c3aed' },
+    crime: { label: 'Crime', icon: '🚨', color: '#be123c' },
+    heavytraffic: { label: 'Heavy traffic', icon: '🚗', color: '#ea580c' },
+    nosignal: { label: 'No signal', icon: '📵', color: '#475569' },
+  };
+  const hzInfo = (t) => HZ[String(t || '').toLowerCase().replace(/[^a-z]/g, '')] || { label: String(t || 'Hazard'), icon: '⚠️', color: '#ef4444' };
   async function renderHazards(page) {
     const { data, error } = await sb.from('hazards').select('*').order('reported_at', { ascending: false }).limit(500);
     if (error) throw error;
@@ -362,9 +374,10 @@
     };
     const [verif, clears, photos] = await Promise.all([tally('hazard_verifications'), tally('hazard_clear_confirmations'), tally('hazard_photos')]);
     const types = [...new Set(rows.map((r) => r.type))].sort();
-    page.innerHTML = `<div class="toolbar"><select id="h-t"><option value="">All types (${rows.length})</option>${types.map((t) => `<option>${esc(t)}</option>`).join('')}</select>
+    page.innerHTML = `<div class="toolbar"><select id="h-t"><option value="">All types (${rows.length})</option>${types.map((t) => `<option value="${esc(t)}">${hzInfo(t).icon} ${esc(hzInfo(t).label)}</option>`).join('')}</select>
         <button class="btn small-btn" data-act="expire-stale">Hide stale hazards (unverified &gt; 72h)</button>
-        <span class="muted small">Latest 500. Red = visible to the community, amber = hidden/private.</span></div>
+        <span class="muted small">Latest 500. Each pin shows its hazard type. Faded pin with a dashed border = hidden from the community.</span></div>
+      <div id="h-legend" class="muted small" style="display:flex;flex-wrap:wrap;gap:6px 14px;margin:8px 0"></div>
       <div id="map"></div><div id="list"></div>`;
     const draw = () => {
       const t = $('#h-t').value, list = rows.filter((r) => !t || r.type === t);
@@ -375,15 +388,21 @@
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxZoom: 19 }).addTo(map);
       mapLayer = L.layerGroup().addTo(map);
       const pts = [];
+      const counts = {};
+      list.forEach((r) => { counts[r.type] = (counts[r.type] || 0) + 1; });
+      $('#h-legend').innerHTML = Object.keys(counts).sort().map((t) => { const h = hzInfo(t); return `<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:20px;height:20px;border-radius:50%;background:${h.color};display:inline-flex;align-items:center;justify-content:center;font-size:12px">${h.icon}</span>${esc(h.label)} (${counts[t]})</span>`; }).join('') || 'No hazards to show.';
       list.forEach((r) => {
         if (typeof r.lat !== 'number' || typeof r.lng !== 'number') return;
         pts.push([r.lat, r.lng]);
-        L.circleMarker([r.lat, r.lng], { radius: 7, color: '#fff', weight: 1.5, fillColor: r.shared ? '#ef4444' : '#f5a524', fillOpacity: .9 })
-          .bindPopup(`<b>${esc(r.type)}</b><br>${esc(nameOf(r.user_id))}<br>${esc(fmtStarted(r.reported_at))}`).addTo(mapLayer);
+        const h = hzInfo(r.type);
+        const icon = L.divIcon({ className: '', iconSize: [30, 30], iconAnchor: [15, 15], popupAnchor: [0, -14],
+          html: `<div style="width:30px;height:30px;border-radius:50%;background:${h.color};border:2px ${r.shared ? 'solid #fff' : 'dashed #f5a524'};${r.shared ? '' : 'opacity:.6;'}display:flex;align-items:center;justify-content:center;font-size:16px;line-height:1;box-shadow:0 1px 4px rgba(0,0,0,.45)">${h.icon}</div>` });
+        L.marker([r.lat, r.lng], { icon, title: h.label })
+          .bindPopup(`<b>${h.icon} ${esc(h.label)}</b><br>${esc(nameOf(r.user_id))}<br>${esc(fmtStarted(r.reported_at))}`).addTo(mapLayer);
       });
       if (pts.length) map.fitBounds(pts, { padding: [30, 30], maxZoom: 15 });
       $('#list').innerHTML = table([
-        { h: 'Type', f: (r) => badge(r.type, 'amber') }, { h: 'Reported by', f: (r) => who(r.user_id) },
+        { h: 'Type', f: (r) => badge(`${hzInfo(r.type).icon} ${hzInfo(r.type).label}`, 'amber') }, { h: 'Reported by', f: (r) => who(r.user_id) },
         { h: 'Location', f: (r) => `<a href="https://www.openstreetmap.org/?mlat=${r.lat}&mlon=${r.lng}#map=17/${r.lat}/${r.lng}" target="_blank" rel="noopener">${Number(r.lat).toFixed(5)}, ${Number(r.lng).toFixed(5)}</a>` },
         { h: 'Reported', f: (r) => fmtStarted(r.reported_at) },
         { h: 'Confirmed', f: (r) => `${verif.get(r.id) || 0} verified · ${clears.get(r.id) || 0} clear votes` },
