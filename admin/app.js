@@ -451,7 +451,8 @@
       { h: 'Dates', f: (c) => `${day(c.start_date)} → ${day(c.end_date)}` },
       { h: 'Prize', f: (c) => (c.prize_amount ? `₱${Number(c.prize_amount).toLocaleString()}` : '—') },
       { h: 'Joined', f: (c) => counts[c.id] || 0 }, { h: 'Status', f: status },
-      { h: '', cls: 'actions', f: (c) => `<button class="btn small-btn" data-act="participants" data-id="${esc(c.id)}">Participants</button>
+      { h: '', cls: 'actions', f: (c) => `<button class="btn small-btn" data-act="edit-challenge" data-id="${esc(c.id)}">Edit</button>
+          <button class="btn small-btn" data-act="participants" data-id="${esc(c.id)}">Participants</button>
           <button class="btn small-btn danger" data-act="delete-row" data-table="challenges" data-id="${esc(c.id)}">Delete</button>` },
     ], rows, 'No challenges.') + pager(count, view.page);
   }
@@ -710,6 +711,29 @@
         });
         if (error) return fail(error, 'Could not create challenge');
         closeModal(); toast('Challenge published.'); await render();
+      };
+    },
+    'edit-challenge': async (id) => {
+      const { data: ch, error } = await sb.from('challenges').select('id, title, description').eq('id', id).maybeSingle();
+      if (error || !ch) return fail(error || new Error('Challenge not found'), 'Could not load the challenge');
+      openModal(`<form id="ec-form" class="nc">
+        <div class="nc-head">${ICONS.challenges}<div><h2>Edit challenge</h2><p>Only the title and description can be changed. Dates, target and prize stay fixed so the race stays fair. Users are not notified.</p></div></div>
+        <div class="nc-sec"><h4>Details</h4>
+          <label>Title<input id="ec-title" maxlength="80" required value="${esc(ch.title)}"></label>
+          <label>Description <span class="hint">(optional)</span><textarea id="ec-desc" maxlength="400">${esc(ch.description || '')}</textarea></label>
+          <div class="nc-count"><span id="ec-cnt">${(ch.description || '').length}</span>/400</div>
+        </div>
+        <div class="nc-actions"><button class="btn ghost" type="button" id="ec-cancel">Cancel</button><button class="btn primary" type="submit">Save changes</button></div>
+      </form>`);
+      $('#ec-desc').oninput = () => { $('#ec-cnt').textContent = $('#ec-desc').value.length; };
+      $('#ec-cancel').onclick = closeModal;
+      $('#ec-form').onsubmit = async (ev) => {
+        ev.preventDefault();
+        const title = $('#ec-title').value.trim();
+        if (!title) return toast('Enter a title.', true);
+        const { error: e2 } = await sb.rpc('admin_edit_challenge', { p_challenge: id, p_title: title, p_description: $('#ec-desc').value.trim() });
+        if (e2) return fail(e2, 'Could not save changes');
+        closeModal(); toast('Challenge updated.'); await render();
       };
     },
     'mark-paid': async (id, btn) => {
