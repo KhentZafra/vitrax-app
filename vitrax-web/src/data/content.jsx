@@ -2,7 +2,7 @@
 
 export const APP = {
   name: 'VITRAX',
-  version: '1.0.2',
+  version: '1.0.3',
   minAndroid: 'Android 10',
   apkUrl: import.meta.env.VITE_APK_URL || 'https://github.com/KhentZafra/vitrax-app/releases/latest/download/vitrax.apk',
 }

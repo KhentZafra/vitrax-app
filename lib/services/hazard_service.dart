@@ -133,6 +133,7 @@ class HazardService {
           .lte('lat', lat + dLat)
           .gte('lng', lng - dLng)
           .lte('lng', lng + dLng)
+          .order('reported_at', ascending: false)
           .limit(500);
       return (rows as List<dynamic>).map((r) => HazardReport.fromMap(r as Map<String, dynamic>)).toList();
     } catch (_) {

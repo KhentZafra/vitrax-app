@@ -929,28 +929,33 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
   /// set up, so filtering happens client-side), then clusters same-type
   /// reports that are close together into single pins with a radius.
   Future<void> _loadCommunityHazards(LatLng near) async {
-    const searchRadiusMeters = 5000.0;
+    // Show every shared hazard on the island (150 km covers all of Bohol from
+    // any point on it), so the whole map is visible even far from home.
+    // Only the ones within 5 km are checked for "already handled by me",
+    // because that lookup sends every hazard id in one request.
+    const displayRadiusMeters = 150000.0;
+    const awarenessRadiusMeters = 5000.0;
     _lastHazardLoadCenter = near;
-    final shared = await HazardService.fetchNear(near.latitude, near.longitude, searchRadiusMeters);
+    final shared = await HazardService.fetchNear(near.latitude, near.longitude, displayRadiusMeters);
     if (!mounted) return;
 
-    final nearby = shared.where((h) {
+    final close = shared.where((h) {
       final distance = Geolocator.distanceBetween(
         near.latitude,
         near.longitude,
         h.position.latitude,
         h.position.longitude,
       );
-      return distance <= searchRadiusMeters;
+      return distance <= awarenessRadiusMeters;
     }).toList();
 
     setState(() {
       _communityClusters = HazardCluster.cluster(
-        nearby,
+        shared,
         thresholdMeters: HazardClusterConfig.duplicateThresholdMeters,
       );
     });
-    _refreshHandledHazards(nearby);
+    _refreshHandledHazards(close);
   }
 
   String _relativeTimeLabel(DateTime time) {

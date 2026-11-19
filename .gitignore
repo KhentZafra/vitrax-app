@@ -49,3 +49,6 @@ admin/config.js
 backups_2026-10-16/
 lib/screens/_backup_*/
 *.bak*
+
+# backup files moved out of assets (they were being bundled into the app)
+_asset_backups/

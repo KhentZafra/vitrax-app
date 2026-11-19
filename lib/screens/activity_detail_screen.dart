@@ -111,10 +111,47 @@ class ActivityDetailScreen extends StatelessWidget {
     }
   }
 
+  /// Shares an activity that was not shared yet, so it appears in Routes and
+  /// counts toward challenges. It is not posted to the Community feed.
+  Future<void> _confirmShare(BuildContext context, Activity a) async {
+    final provider = context.read<ActivityProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xff141414),
+        title: const Text('Share this activity?', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+        content: Text(
+          'It will appear in Routes and count toward any challenge you joined. It will not be posted on the Community feed.',
+          style: TextStyle(color: Colors.grey.shade400, height: 1.4),
+        ),
+        actions: [
+          DialogSafeButton(label: 'Not now', onPressed: () => Navigator.pop(ctx, false)),
+          DialogSafeButton(label: 'Share', onPressed: () => Navigator.pop(ctx, true)),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final id = a.id;
+    final done = id != null && await provider.markActivityShared(id);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(SnackBar(
+      content: Text(done
+          ? 'Shared. It now appears in Routes and counts toward your challenges.'
+          : "Couldn't share this activity. Check your internet and try again."),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasRoute = _routePoints.length > 1;
     final maxSpeed = _maxSpeedKmh;
+    // The activity can change while this page is open (for example after
+    // sharing), so read the current copy from the provider.
+    final live = context.watch<ActivityProvider>().allActivities.firstWhere(
+          (x) => x.id != null && x.id == activity.id,
+          orElse: () => activity,
+        );
 
     return Scaffold(
       backgroundColor: _Palette.background,
@@ -256,7 +293,24 @@ class ActivityDetailScreen extends StatelessWidget {
                         ),
                       ],
                     ),
-                    if (activity.shared) ...[
+                    if (!live.shared && !live.pendingSync && live.id != null) ...[
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () => _confirmShare(context, live),
+                          icon: const Icon(Icons.share, size: 18),
+                          label: const Text('Share to Routes and challenges', style: TextStyle(fontWeight: FontWeight.w700)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xff22c55e),
+                            foregroundColor: const Color(0xff04210f),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (live.shared) ...[
                       const SizedBox(height: 20),
                       Container(
                         width: double.infinity,
@@ -275,7 +329,7 @@ class ActivityDetailScreen extends StatelessWidget {
                         ),
                       ),
                     ],
-                    if (activity.pendingSync) ...[
+                    if (live.pendingSync) ...[
                       const SizedBox(height: 20),
                       Container(
                         width: double.infinity,

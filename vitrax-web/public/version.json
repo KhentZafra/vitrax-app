@@ -1,7 +1,7 @@
 {
-  "version": "1.0.2",
-  "build": 3,
+  "version": "1.0.3",
+  "build": 4,
   "minBuild": 1,
   "apk": "https://github.com/KhentZafra/vitrax-app/releases/latest/download/vitrax.apk",
-  "notes": "Fix: walking and slow jogging are now counted fully, so your distance is more accurate."
+  "notes": "New: share an activity you forgot to share, right from its details page. All hazards now show on the recording map. Walking and slow jogging are counted fully."
 }
