@@ -612,7 +612,7 @@
       if (error) return fail(error, 'Update failed'); toast('Hazard hidden.'); await render();
     },
     'show-hazard': async (id) => {
-      const { error } = await sb.from('hazards').update({ shared: true, status: 'active' }).eq('id', id);
+      const { error } = await sb.from('hazards').update({ shared: true, status: 'active', restored_at: new Date().toISOString() }).eq('id', id);
       if (error) return fail(error, 'Update failed'); toast('Hazard restored.'); await render();
     },
     'expire-stale': async () => {
