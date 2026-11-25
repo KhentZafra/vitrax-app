@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:flutter/material.dart';
 import '../widgets/skeleton_views.dart';
@@ -94,6 +95,11 @@ class _FeedNotificationsScreenState extends State<FeedNotificationsScreen> {
   }
 
   void _open(FeedNotification n) {
+    // An app-update announcement opens the download page instead of a challenge.
+    if (n.isAnnouncement && (n.body ?? '').contains('vitraxapp.com')) {
+      launchUrl(Uri.parse('https://www.vitraxapp.com'), mode: LaunchMode.externalApplication);
+      return;
+    }
     // Use the copy already loaded in the feed when there is one; otherwise
     // the router fetches the post. Likes and reshares open the post too.
     final kind = n.postKind == 'activity' ? FeedItemKind.activityShare : FeedItemKind.standalonePost;
@@ -142,7 +148,7 @@ class _FeedNotificationsScreenState extends State<FeedNotificationsScreen> {
                     const SizedBox(height: 6),
                     Text(n.body ?? 'A new challenge is live. Join now!', style: const TextStyle(color: Colors.white, fontSize: 14.5, fontWeight: FontWeight.w600, height: 1.3)),
                     const SizedBox(height: 8),
-                    const Text('Tap to view and join  >', style: TextStyle(color: Color(0xff6aa2ff), fontSize: 12, fontWeight: FontWeight.w600)),
+                    Text((n.body ?? '').contains('vitraxapp.com') ? 'Tap to update  >' : 'Tap to view and join  >', style: TextStyle(color: Color(0xff6aa2ff), fontSize: 12, fontWeight: FontWeight.w600)),
                   ],
                 ),
               ),

@@ -77,6 +77,15 @@ class HazardService {
     }
   }
 
+  /// Restarts the 7-day expiry of No Signal pins that a rider just lost signal
+  /// inside again (supabase/057_nosignal_expiry_7days.sql). Best effort.
+  static Future<void> renewNoSignal(List<String> ids) async {
+    if (ids.isEmpty) return;
+    try {
+      await _supabase.rpc('renew_no_signal', params: {'p_ids': ids});
+    } catch (_) {}
+  }
+
   static Future<bool> delete(String hazardId) async {
     try {
       await _supabase.from('hazards').delete().eq('id', hazardId);

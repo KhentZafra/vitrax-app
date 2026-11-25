@@ -154,9 +154,16 @@ class _RecordScreenState extends State<RecordScreen> with WidgetsBindingObserver
     if (!mounted || !_isRecording) return;
     final radius = HazardReport(type: HazardType.noSignal, position: center, lengthMeters: meters, reportedAt: DateTime.now()).zoneRadiusMeters;
     bool near(LatLng p, double r) => Geolocator.distanceBetween(p.latitude, p.longitude, center.latitude, center.longitude) < (radius > r ? radius : r);
-    final alreadyKnown = _communityClusters.any((c) => c.type == HazardType.noSignal && near(c.center, c.radiusMeters)) ||
-        _hazards.any((h) => h.type == HazardType.noSignal && near(h.position, h.zoneRadiusMeters));
-    if (alreadyKnown) return;
+    final knownClusters = _communityClusters.where((c) => c.type == HazardType.noSignal && near(c.center, c.radiusMeters)).toList();
+    final knownOwn = _hazards.where((h) => h.type == HazardType.noSignal && near(h.position, h.zoneRadiusMeters)).toList();
+    if (knownClusters.isNotEmpty || knownOwn.isNotEmpty) {
+      // Same area, signal lost again: restart that pin's 7-day expiry.
+      HazardService.renewNoSignal([
+        for (final c in knownClusters) ...c.reports.map((r) => r.id).whereType<String>(),
+        ...knownOwn.map((h) => h.id).whereType<String>(),
+      ]);
+      return;
+    }
     _reportHazard(
       HazardType.noSignal,
       prebuilt: HazardReport(
