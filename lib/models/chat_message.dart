@@ -28,6 +28,17 @@ class ChatMessage {
   }
 }
 
+/// One emoji reaction on a message (one per person per message).
+class ChatReaction {
+  final String messageId;
+  final String userId;
+  final String emoji;
+  ChatReaction({required this.messageId, required this.userId, required this.emoji});
+
+  factory ChatReaction.fromMap(Map<String, dynamic> m) =>
+      ChatReaction(messageId: m['message_id'] as String, userId: m['user_id'] as String, emoji: m['emoji'] as String);
+}
+
 /// One row in the chat list — a conversation with the other participant
 /// and a preview of the most recent message.
 class ChatConversation {

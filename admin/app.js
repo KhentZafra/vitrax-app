@@ -278,7 +278,7 @@
     const [acts, posts, comments, haz] = await Promise.all([head('activities'), head('community_posts'), head('feed_comments'), head('hazards')]);
     const { count: reportsAgainst } = await sb.from('chat_reports').select('*', { count: 'exact', head: true }).eq('reported_user_id', id);
     const { data: bdg } = await sb.from('user_badges').select('badge_key, tier').eq('user_id', id);
-    const BN = { first_steps: 'First Steps', distance: 'Distance Club', challenger: 'Challenger', streak: 'On a Roll', route_pioneer: 'Route Pioneer', safety_warden: 'Safety Warden', early_bird: 'Early Bird', endurance: 'Endurance', hazard_spotter: 'Hazard Spotter', trail_sharer: 'Trail Sharer', community_voice: 'Community Voice', route_likes: 'Crowd Favorite' };
+    const BN = { first_steps: 'First Steps', distance: 'Distance Club', challenger: 'Challenger', streak: 'On a Roll', route_pioneer: 'Route Pioneer', safety_warden: 'Safety Warden', early_bird: 'Early Bird', endurance: 'Endurance', hazard_spotter: 'Hazard Spotter', trail_sharer: 'Trail Sharer', community_voice: 'Community Voice', route_likes: 'Crowd Favorite', champion: 'Challenge Winner' };
     const order = ['bronze', 'silver', 'gold', 'platinum', 'diamond', 'elite'], top = {};
     (bdg || []).forEach((b) => { if (!top[b.badge_key] || order.indexOf(b.tier) > order.indexOf(top[b.badge_key])) top[b.badge_key] = b.tier; });
     const badgeHtml = Object.entries(top).map(([k, t]) => badge(`${BN[k] || k} · ${t}`, t === 'elite' ? 'red' : (t === 'diamond' || t === 'platinum' || t === 'gold') ? 'amber' : 'blue')).join(' ') || '<span class="muted">None yet</span>';
@@ -460,18 +460,21 @@
     const [{ data: parts, error }, { data: pays }, { data: ch }] = await Promise.all([
       sb.from('challenge_participants').select('*').eq('challenge_id', id),
       sb.from('challenge_prize_payments').select('*').eq('challenge_id', id),
-      sb.from('challenges').select('title, prize_amount').eq('id', id).maybeSingle(),
+      sb.from('challenges').select('title, prize_amount, type, target_value, closed_at, winner_user_id, auto_close').eq('id', id).maybeSingle(),
     ]);
     if (error) return fail(error, 'Loading participants');
     await loadPeople((parts || []).map((p) => p.user_id));
     const paid = new Set((pays || []).map((p) => p.winner_user_id));
     const prize = ch?.prize_amount > 0;
     openModal(`<h2 style="margin-top:0">${esc(ch?.title || 'Challenge')}</h2>
-      <p class="muted">${(parts || []).length} participant(s)${prize ? ` · prize ₱${Number(ch.prize_amount).toLocaleString()}` : ''}. The winner is decided in the app from shared activities. The challenge creator sends the prize by GCash and marks it paid in the app. Use “Mark paid” here only as an admin override, after you have verified the payment.</p>
+      <p class="muted">${(parts || []).length} participant(s)${prize ? ` · prize ₱${Number(ch.prize_amount).toLocaleString()}` : ''}. ${ch?.closed_at ? `Closed ${fmt(ch.closed_at)}, winner: ${who(ch.winner_user_id)}.` : (ch?.auto_close ? 'The first runner to finish wins and the challenge closes by itself.' : 'The winner is decided in the app from shared activities.')} The challenge creator sends the prize by GCash and marks it paid in the app. Use “Mark paid” here only as an admin override, after you have verified the payment.</p>
       ${table([
         { h: 'Participant', f: (p) => who(p.user_id) },
         { h: 'Finished', f: (p) => (p.completed_at ? fmt(p.completed_at) : '—') },
-        { h: 'Best time', f: (p) => (p.duration_seconds ? dur(p.duration_seconds) : '—') },
+        ...(ch?.type === 'route'
+          ? [{ h: 'Best time', f: (p) => (p.duration_seconds ? dur(p.duration_seconds) : '—') }]
+          : [{ h: 'Progress', f: (p) => `${Number(p.progress_value || 0).toFixed(2)} / ${Number(ch?.target_value || 0)}` },
+             { h: 'Total time', f: (p) => (p.total_seconds ? dur(p.total_seconds) : '—') }]),
         ...(prize ? [{ h: 'Prize', cls: 'actions', f: (p) => (paid.has(p.user_id) ? badge('paid', 'green') : `<button class="btn small-btn ok" data-act="mark-paid" data-id="${esc(id)}" data-user="${esc(p.user_id)}">Mark paid</button>`) }] : []),
       ], parts || [], 'Nobody has joined.')}`);
   }

@@ -241,6 +241,21 @@ class CommunityFeedService {
     }
   }
 
+  /// Deletes my own post, or takes my shared activity off the feed (the
+  /// activity itself stays in my history). Returns true when it worked.
+  static Future<bool> deleteMyItem(FeedItem item) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null || item.posterUserId != user.id) return false;
+    try {
+      final rows = item.kind == FeedItemKind.activityShare
+          ? await _supabase.from('activities').update({'shared_to_feed': false}).eq('id', item.id).eq('user_id', user.id).select('id')
+          : await _supabase.from('community_posts').delete().eq('id', item.id).eq('user_id', user.id).select('id');
+      return (rows as List).isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Toggles a like on either an activity-share or a standalone post.
   /// Returns the new liked state on success, null on failure.
   static Future<bool?> toggleLike(FeedItem item, {required bool currentlyLiked}) async {

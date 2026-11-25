@@ -238,6 +238,42 @@ class ChatService {
             .toList());
   }
 
+  /// Live stream of every reaction in [conversationId].
+  static Stream<List<ChatReaction>> streamReactions(String conversationId) {
+    return _supabase
+        .from('message_reactions')
+        .stream(primaryKey: ['message_id', 'user_id'])
+        .eq('conversation_id', conversationId)
+        .map((rows) => rows.map(ChatReaction.fromMap).toList());
+  }
+
+  static Future<List<ChatReaction>> fetchReactions(String conversationId) async {
+    try {
+      final rows = await _supabase.from('message_reactions').select().eq('conversation_id', conversationId);
+      return (rows as List).cast<Map<String, dynamic>>().map(ChatReaction.fromMap).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Set my reaction on a message ([emoji] null removes it).
+  static Future<bool> setReaction(String messageId, String? emoji) async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return false;
+    try {
+      if (emoji == null) {
+        await _supabase.from('message_reactions').delete().eq('message_id', messageId).eq('user_id', uid);
+      } else {
+        await _supabase.from('message_reactions').upsert({'message_id': messageId, 'user_id': uid, 'emoji': emoji});
+      }
+      return true;
+    } catch (e) {
+      // ignore: avoid_print
+      print('ChatService.setReaction failed: $e');
+      return false;
+    }
+  }
+
   static Future<bool> sendMessage(String conversationId, String body) async {
     final user = _supabase.auth.currentUser;
     if (user == null || body.trim().isEmpty) return false;

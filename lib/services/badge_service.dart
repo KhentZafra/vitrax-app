@@ -63,6 +63,14 @@ class BadgeService {
       thresholds: [1, 3, 5, 10, 20, 40],
     ),
     BadgeDef(
+      key: 'champion',
+      title: 'Challenge Winner',
+      description: 'Be the first to finish a prize challenge.',
+      unit: 'wins',
+      icon: Icons.workspace_premium_outlined,
+      thresholds: [1, 3, 5, 10, 20, 40],
+    ),
+    BadgeDef(
       key: 'streak',
       title: 'On a Roll',
       description: 'Be active on consecutive days. Your longest streak counts.',

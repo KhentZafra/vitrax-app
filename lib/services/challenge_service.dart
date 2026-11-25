@@ -247,7 +247,7 @@ class ChallengeService {
     try {
       final rows = await _supabase
           .from('challenge_participants')
-          .select('user_id, completed_at, progress_value, profiles(first_name, last_name, avatar_url)')
+          .select('user_id, completed_at, progress_value, total_seconds, profiles(first_name, last_name, avatar_url)')
           .eq('challenge_id', challengeId);
 
       return (rows as List).cast<Map<String, dynamic>>().map((row) {
@@ -262,6 +262,7 @@ class ChallengeService {
           avatarUrl: profile?['avatar_url'] as String?,
           completedAt: completedAtRaw != null ? DateTime.parse(completedAtRaw).toLocal() : null,
           progressValue: (row['progress_value'] as num?)?.toDouble() ?? 0.0,
+          totalSeconds: (row['total_seconds'] as num?)?.toInt() ?? 0,
         );
       }).toList();
     } catch (e) {
@@ -325,6 +326,47 @@ class ChallengeService {
     }
   }
 
+  /// Winner chosen by the server (earliest real finish time), see
+  /// 049_challenge_server_winner.sql.
+  static Future<ChallengeWinner?> _serverWinner(Challenge challenge) async {
+    try {
+      final row = await _supabase
+          .from('challenge_participants')
+          .select('user_id, progress_value, completed_at, total_seconds, gcash_qr_url, profiles(first_name, last_name, avatar_url)')
+          .eq('challenge_id', challenge.id)
+          .eq('user_id', challenge.winnerUserId!)
+          .maybeSingle();
+      if (row == null) return null;
+
+      final paymentRows = await _supabase.from('challenge_prize_payments').select('winner_user_id').eq('challenge_id', challenge.id);
+      final paidUserIds = (paymentRows as List).cast<Map<String, dynamic>>().map((r) => r['winner_user_id'] as String).toSet();
+      final px = await _fetchPayExtras(challenge.id);
+
+      final userId = row['user_id'] as String;
+      final profile = row['profiles'] as Map<String, dynamic>?;
+      final name = ('${profile?['first_name'] ?? ''} ${profile?['last_name'] ?? ''}').trim();
+      final completedRaw = row['completed_at'] as String?;
+      return ChallengeWinner(
+        userId: userId,
+        name: name.isEmpty ? 'A Vitrax user' : name,
+        avatarUrl: profile?['avatar_url'] as String?,
+        progress: (row['progress_value'] as num?)?.toDouble() ?? 0,
+        gcashQrUrl: row['gcash_qr_url'] as String?,
+        prizePaid: paidUserIds.contains(userId),
+        proofPath: px.proofs[userId],
+        markedPaidAt: px.marked[userId],
+        confirmedAt: px.confirmed[userId],
+        disputed: px.disputed.contains(userId),
+        finishedAt: completedRaw != null ? DateTime.parse(completedRaw).toLocal() : null,
+        totalSeconds: (row['total_seconds'] as num?)?.toInt() ?? 0,
+      );
+    } catch (e) {
+      // ignore: avoid_print
+      print('ChallengeService._serverWinner failed: $e');
+      return null;
+    }
+  }
+
   /// Determines the winner of [challenge]'s cash prize. For a regular
   /// (goal-based) challenge: among participants whose SHARED activities
   /// meet or exceed the target, whoever has the single highest total.
@@ -334,6 +376,8 @@ class ChallengeService {
   /// active/upcoming challenge, or if nobody qualified.
   static Future<ChallengeWinner?> determineWinner(Challenge challenge) async {
     if (!challenge.hasEnded) return null;
+    // The server already picked the winner when it closed the challenge.
+    if (challenge.winnerUserId != null) return _serverWinner(challenge);
     if (challenge.isRouteChallenge) return _determineRouteWinner(challenge);
 
     try {
@@ -449,6 +493,7 @@ class ChallengeService {
 
   static Future<bool> _isWinner(Challenge c, String me) async {
     try {
+      if (c.winnerUserId != null) return c.winnerUserId == me;
       if (c.hasPrize) {
         final w = await determineWinner(c);
         return w?.userId == me;
@@ -802,7 +847,8 @@ class ChallengeStanding {
   final String? avatarUrl;
   final DateTime? completedAt;
   final double progressValue;
-  const ChallengeStanding({required this.userId, required this.name, this.avatarUrl, required this.completedAt, required this.progressValue});
+  final int totalSeconds; // total time of the runs that added up to the goal
+  const ChallengeStanding({required this.userId, required this.name, this.avatarUrl, required this.completedAt, required this.progressValue, this.totalSeconds = 0});
 
   bool get isCompleted => completedAt != null;
 }

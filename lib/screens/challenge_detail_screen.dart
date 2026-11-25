@@ -81,64 +81,8 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
       _isLoading = false;
     });
 
-    // Auto-complete and progress-push are goal-based-challenge concepts
-    // only — a route challenge's "completion" is set directly by
-    // submitRouteAttempt when a valid attempt is recorded, not by
-    // comparing a progress number against targetValue.
-    if (!isRoute) {
-      _maybeAutoComplete();
-
-      // Push my own current progress up so other participants see an
-      // up-to-date standing for me too — harmless to call even if I
-      // haven't joined (updateProgress no-ops when there's no matching
-      // participant row) or if I've already completed (progress no
-      // longer matters once completed_at is set — see build() below).
-      if (mounted && found != null && found.joinedByMe && !found.iCompletedIt) {
-        await ChallengeService.updateProgress(found.id, _myProgress);
-      }
-    }
-  }
-
-  /// My progress toward the goal, computed from activities already
-  /// loaded in ActivityProvider — not a server round-trip. See the note
-  /// on Challenge for why this is client-side and personal-only for
-  /// regular challenges (the cash-prize WINNER is a separate,
-  /// server-computed thing — see ChallengeService.determineWinner).
-  /// Meaningless for a route challenge (always 0) — that type tracks a
-  /// recorded time via submitRouteAttempt instead, see _timeLeaderboard.
-  double get _myProgress {
-    final c = _challenge;
-    if (c == null || !mounted) return 0;
-
-    final activities = context.read<ActivityProvider>().allActivities.where((a) {
-      final started = clockOf(a.startedAt);
-      final inRange = !started.isBefore(c.startDate) && !started.isAfter(c.endDate);
-      final matchesType = c.activityFilter == ChallengeActivityFilter.any ||
-          (c.activityFilter == ChallengeActivityFilter.run && a.type == ActivityType.run) ||
-          (c.activityFilter == ChallengeActivityFilter.ride && a.type == ActivityType.ride);
-      return inRange && matchesType;
-    });
-
-    switch (c.type) {
-      case ChallengeType.distance:
-        return activities.fold(0.0, (sum, a) => sum + a.distanceKm);
-      case ChallengeType.activityCount:
-        return activities.length.toDouble();
-      case ChallengeType.duration:
-        return activities.fold(0.0, (sum, a) => sum + a.duration.inMinutes);
-      case ChallengeType.route:
-        return 0; // not used for route challenges — see _timeLeaderboard instead
-    }
-  }
-
-  Future<void> _maybeAutoComplete() async {
-    final c = _challenge;
-    if (c == null || !c.joinedByMe || c.iCompletedIt) return;
-    if (_myProgress < c.targetValue) return;
-
-    final ok = await ChallengeService.markCompleted(c.id);
-    if (!ok || !mounted) return;
-    _load();
+    // Progress and completion are decided by the server (only shared runs
+    // count), so the phone no longer reports them.
   }
 
   Future<void> _toggleJoin() async {
@@ -654,6 +598,8 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
   /// Winner's result, formatted for display — a duration for a route
   /// challenge (ChallengeWinner.progress holds raw seconds there, see
   /// its doc comment), the usual "X / goal" for everything else.
+  String _durationText(int totalSeconds) => _durationOf(totalSeconds);
+
   String _winnerResultLabel(ChallengeWinner winner, Challenge c) {
     if (c.isRouteChallenge) return _formatDuration(Duration(seconds: winner.progress.round()));
     return _progressLabel(winner.progress, c);
@@ -699,7 +645,8 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
       );
     }
 
-    final progress = c.joinedByMe ? _myProgress : 0.0;
+    final myStanding = _standings.where((s) => s.userId == _currentUserId).firstOrNull;
+    final progress = c.joinedByMe ? (myStanding?.progressValue ?? 0.0) : 0.0;
     final progressFraction = c.targetValue > 0 ? (progress / c.targetValue).clamp(0.0, 1.0) : 0.0;
     final iAmWinner = _winner != null && _winner!.userId == _currentUserId;
     final iAmCreator = c.creatorId == _currentUserId;
@@ -867,7 +814,9 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                         Text(
                           c.isRouteChallenge
                               ? 'Winner is decided once the challenge ends — fastest valid, shared time wins.'
-                              : 'Winner is decided once the challenge ends — whoever has the highest qualifying result.',
+                              : (c.autoClose
+                                  ? 'First to reach the target wins and the challenge closes automatically. If two people finish close together, the earliest real finish time wins. Share your run within 30 minutes after the first finisher.'
+                                  : 'Winner is decided once the challenge ends — whoever has the highest qualifying result.'),
                           style: TextStyle(color: Colors.grey.shade400, fontSize: 12.5, height: 1.4),
                         )
                       else if (_winner == null)
@@ -882,6 +831,13 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                             ),
                           ],
                         ),
+                        if (_winner!.finishedAt != null) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            'Finished ${DateFormat('MMM d').format(_winner!.finishedAt!)}${_winner!.totalSeconds > 0 ? ' · total time ${_durationText(_winner!.totalSeconds)}' : ''}',
+                            style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                          ),
+                        ],
                         const SizedBox(height: 12),
 
                         // Winner, hasn't uploaded QR yet
@@ -1339,14 +1295,7 @@ class _StandingRow extends StatelessWidget {
     }
   }
 
-  String _relativeTime(DateTime time) {
-    final diff = DateTime.now().difference(time);
-    if (diff.inMinutes < 1) return 'just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    if (diff.inDays < 7) return '${diff.inDays}d ago';
-    return DateFormat('MMM d').format(time);
-  }
+  String _durationText(int totalSeconds) => _durationOf(totalSeconds);
 
   String _progressText() {
     final p = standing.progressValue == standing.progressValue.roundToDouble()
@@ -1387,15 +1336,20 @@ class _StandingRow extends StatelessWidget {
                   isMe ? '${standing.name} (You)' : standing.name,
                   style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: isMe ? FontWeight.w700 : FontWeight.w500),
                 ),
-                if (!standing.isCompleted) ...[
-                  const SizedBox(height: 2),
-                  Text(_progressText(), style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
-                ],
+                const SizedBox(height: 2),
+                Text(_progressText(), style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
               ],
             ),
           ),
           if (standing.isCompleted)
-            Text(_relativeTime(standing.completedAt!), style: TextStyle(color: Colors.grey.shade500, fontSize: 12))
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(DateFormat('MMM d').format(standing.completedAt!), style: TextStyle(color: Colors.grey.shade300, fontSize: 12, fontWeight: FontWeight.w600)),
+                if (standing.totalSeconds > 0) Text(_durationText(standing.totalSeconds), style: TextStyle(color: Colors.grey.shade500, fontSize: 11.5)),
+              ],
+            )
           else
             Icon(Icons.hourglass_empty, color: Colors.grey.shade700, size: 16),
         ],
@@ -1544,4 +1498,13 @@ class _SectionCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 11583 seconds -> "3h 13m"; under an hour -> "42m 10s".
+String _durationOf(int totalSeconds) {
+  final h = totalSeconds ~/ 3600;
+  final m = (totalSeconds % 3600) ~/ 60;
+  final s = totalSeconds % 60;
+  if (h > 0) return '${h}h ${m}m';
+  return '${m}m ${s}s';
 }

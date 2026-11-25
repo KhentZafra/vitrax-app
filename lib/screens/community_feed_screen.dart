@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -18,9 +19,11 @@ import '../services/community_feed_service.dart';
 import '../services/media_upload_service.dart';
 import '../services/feed_notification_service.dart';
 import '../services/table_watcher.dart';
+import '../widgets/dialog_buttons.dart';
 import '../widgets/feed_comments_sheet.dart';
 import '../widgets/feed_share_sheet.dart';
 import '../widgets/nav_badge.dart';
+import '../widgets/photo_viewer.dart';
 import '../widgets/user_actions_sheet.dart';
 import 'challenges_screen.dart';
 import 'chat_list_screen.dart';
@@ -462,7 +465,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
             else
               ...(_isLoading
                   ? List.generate(2, (_) => const _PostSkeleton())
-                  : _visibleItems.map((item) => _FeedItemCard(item: item, onLike: () => _toggleLike(item), onCommentCount: (n) => _setCommentCount(item, n), onReshared: _load))),
+                  : _visibleItems.map((item) => _FeedItemCard(item: item, onLike: () => _toggleLike(item), onCommentCount: (n) => _setCommentCount(item, n), onReshared: _load, onDeleted: _load))),
             if (!_isLoading && _loadingMore)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 20),
@@ -993,7 +996,36 @@ class _FeedItemCard extends StatelessWidget {
   final VoidCallback onLike;
   final ValueChanged<int> onCommentCount;
   final VoidCallback onReshared;
-  const _FeedItemCard({required this.item, required this.onLike, required this.onCommentCount, required this.onReshared});
+  final VoidCallback? onDeleted;
+  const _FeedItemCard({required this.item, required this.onLike, required this.onCommentCount, required this.onReshared, this.onDeleted});
+
+  bool get _isMine => item.posterUserId == Supabase.instance.client.auth.currentUser?.id;
+
+  Future<void> _confirmDelete(BuildContext context) async {
+    final isShare = item.kind == FeedItemKind.activityShare;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xff141414),
+        title: Text(isShare ? 'Remove from feed?' : 'Delete this post?', style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+        content: Text(
+          isShare ? 'It will disappear from the Community feed. Your activity stays in your history.' : 'This permanently deletes your post, with its likes and comments. It cannot be undone.',
+          style: TextStyle(color: Colors.grey.shade400),
+        ),
+        actions: [
+          DialogSafeButton(label: 'Keep', onPressed: () => Navigator.pop(ctx, false)),
+          DialogDangerButton(label: isShare ? 'Remove' : 'Delete', onPressed: () => Navigator.pop(ctx, true)),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final done = await CommunityFeedService.deleteMyItem(item);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(done ? (isShare ? 'Removed from the feed.' : 'Post deleted.') : "Couldn't delete it. Please try again.")));
+    if (done) onDeleted?.call();
+  }
 
   String _relativeTime(DateTime date) {
     final diff = DateTime.now().difference(date);
@@ -1048,18 +1080,33 @@ class _FeedItemCard extends StatelessWidget {
                   ),
                 ),
                 Text(_relativeTime(item.createdAt), style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                if (_isMine)
+                  PopupMenuButton<String>(
+                    padding: EdgeInsets.zero,
+                    color: const Color(0xff1a1a1a),
+                    icon: Icon(Icons.more_horiz, color: Colors.grey.shade500, size: 20),
+                    onSelected: (v) {
+                      if (v == 'delete') _confirmDelete(context);
+                    },
+                    itemBuilder: (_) => [
+                      PopupMenuItem(
+                        value: 'delete',
+                        child: Text(item.kind == FeedItemKind.activityShare ? 'Remove from feed' : 'Delete post', style: const TextStyle(color: Colors.redAccent)),
+                      ),
+                    ],
+                  ),
               ],
             ),
           ),
           if (item.mediaUrl != null || activity != null)
             ClipRRect(
               borderRadius: BorderRadius.zero,
-              child: SizedBox(height: 220, width: double.infinity, child: _buildMedia(activity)),
+              child: SizedBox(height: 220, width: double.infinity, child: _buildMedia(context, activity)),
             ),
           if ((item.caption ?? '').isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
-              child: Text(item.caption!, style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.4)),
+              child: _ExpandableCaption(text: item.caption!),
             ),
           if (item.isReshare)
             Padding(
@@ -1124,12 +1171,15 @@ class _FeedItemCard extends StatelessWidget {
     );
   }
 
-  Widget _buildMedia(Activity? activity) {
+  Widget _buildMedia(BuildContext context, Activity? activity) {
     if (item.mediaType == FeedMediaType.video && item.mediaUrl != null) {
       return _InlineVideo(url: item.mediaUrl!);
     }
     if (item.mediaType == FeedMediaType.photo && item.mediaUrl != null) {
-      return Image.network(
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => showPhotoViewer(context, item.mediaUrl!),
+        child: Image.network(
         item.mediaUrl!,
         fit: BoxFit.cover,
         loadingBuilder: (context, child, progress) {
@@ -1137,6 +1187,7 @@ class _FeedItemCard extends StatelessWidget {
           return Container(color: const Color(0xff141414), child: const Center(child: CircularProgressIndicator(color: Colors.blue)));
         },
         errorBuilder: (context, error, stackTrace) => activity != null ? _RouteSketchBackground(points: activity.route) : Container(color: const Color(0xff141414)),
+        ),
       );
     }
     if (activity != null) return _RouteSketchBackground(points: activity.route);
@@ -1391,7 +1442,7 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
       appBar: AppBar(backgroundColor: const Color(0xff050505), foregroundColor: Colors.white, title: const Text('Post')),
       body: ListView(
         padding: const EdgeInsets.all(16),
-        children: [_FeedItemCard(item: _item, onLike: _like, onCommentCount: _setCount, onReshared: () {})],
+        children: [_FeedItemCard(item: _item, onLike: _like, onCommentCount: _setCount, onReshared: () {}, onDeleted: () => Navigator.of(context).pop())],
       ),
     );
   }
@@ -1402,4 +1453,56 @@ void clearFeedCache() {
   _CommunityFeedScreenState._cachedItems = null;
   _CommunityFeedScreenState._cachedCursor = null;
   _CommunityFeedScreenState._cachedHasMore = false;
+}
+
+/// Long captions are cut after 3 lines with "See more" / "See less", like
+/// other social apps, so every post card keeps the same height.
+class _ExpandableCaption extends StatefulWidget {
+  final String text;
+  const _ExpandableCaption({required this.text});
+
+  @override
+  State<_ExpandableCaption> createState() => _ExpandableCaptionState();
+}
+
+class _ExpandableCaptionState extends State<_ExpandableCaption> {
+  static const _style = TextStyle(color: Colors.white, fontSize: 14, height: 1.4);
+  static const _maxLines = 3;
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final scaler = MediaQuery.textScalerOf(context);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final painter = TextPainter(
+          text: TextSpan(text: widget.text, style: _style),
+          maxLines: _maxLines,
+          textDirection: ui.TextDirection.ltr,
+          textScaler: scaler,
+        )..layout(maxWidth: constraints.maxWidth);
+        final overflows = painter.didExceedMaxLines;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.text,
+              style: _style,
+              maxLines: _expanded ? null : _maxLines,
+              overflow: _expanded ? TextOverflow.visible : TextOverflow.ellipsis,
+            ),
+            if (overflows)
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => setState(() => _expanded = !_expanded),
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 4, bottom: 2),
+                  child: Text(_expanded ? 'See less' : 'See more', style: TextStyle(color: Colors.grey.shade400, fontSize: 14, fontWeight: FontWeight.w600)),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
 }

@@ -115,6 +115,14 @@ class Challenge {
   /// Created by the Vitrax team from the admin dashboard.
   final bool isOfficial;
 
+  /// Set by the server when a prize challenge closes early because someone
+  /// finished and the short wait for other finishers is over.
+  final DateTime? closedAt;
+  final String? winnerUserId;
+
+  /// The server picks the winner and closes the challenge automatically.
+  final bool autoClose;
+
   Challenge({
     required this.id,
     required this.creatorId,
@@ -134,9 +142,12 @@ class Challenge {
     this.routePoints,
     this.baselineDurationSeconds,
     this.isOfficial = false,
+    this.closedAt,
+    this.winnerUserId,
+    this.autoClose = false,
   });
 
-  bool get hasEnded => DateTime.now().isAfter(endDate);
+  bool get hasEnded => closedAt != null || DateTime.now().isAfter(endDate);
   bool get hasStarted => DateTime.now().isAfter(startDate) || DateTime.now().isAtSameMomentAs(startDate);
   bool get isActive => hasStarted && !hasEnded;
   bool get iCompletedIt => myCompletedAt != null;
@@ -173,6 +184,9 @@ class Challenge {
       myCompletedAt: myCompletedAt,
       routePoints: (map['route'] as List<dynamic>?)?.map((p) => GpsPoint.fromJson(p as Map<String, dynamic>)).toList(),
       baselineDurationSeconds: map['baseline_duration_seconds'] as int?,
+      closedAt: map['closed_at'] != null ? DateTime.parse(map['closed_at'] as String).toLocal() : null,
+      winnerUserId: map['winner_user_id'] as String?,
+      autoClose: map['auto_close'] == true,
     );
   }
 
@@ -214,6 +228,10 @@ class ChallengeWinner {
   /// The winner reported "I did not receive it" and an admin has not ruled yet.
   final bool disputed;
 
+  /// When the winner really finished, and their total running time.
+  final DateTime? finishedAt;
+  final int totalSeconds;
+
   ChallengeWinner({
     required this.userId,
     required this.name,
@@ -225,6 +243,8 @@ class ChallengeWinner {
     this.markedPaidAt,
     this.confirmedAt,
     this.disputed = false,
+    this.finishedAt,
+    this.totalSeconds = 0,
   });
 
   /// A paid prize counts as confirmed when the winner confirmed it, or when

@@ -1,7 +1,7 @@
 {
-  "version": "1.0.3",
-  "build": 4,
+  "version": "1.0.4",
+  "build": 5,
   "minBuild": 1,
   "apk": "https://github.com/KhentZafra/vitrax-app/releases/latest/download/vitrax.apk",
-  "notes": "New: share an activity you forgot to share, right from its details page. All hazards now show on the recording map. Walking and slow jogging are counted fully."
+  "notes": "Fixed: false \"No signal\" hazards no longer appear when your connection is simply off or flickers briefly. Fixed: tapping a feed photo now opens it large and centered, with pinch to zoom. New: react to chat messages with emojis and tap yours to remove it. Challenge winners are now decided reliably by the server."
 }

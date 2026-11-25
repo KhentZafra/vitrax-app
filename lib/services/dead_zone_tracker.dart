@@ -20,7 +20,7 @@ import '../config/env.dart';
 /// distance travelled in [checkEvery] more or less at each end).
 class DeadZoneTracker {
   static const checkEvery = Duration(seconds: 10);
-  static const failsToStart = 2;
+  static const failsToStart = 3;
   static const minLengthMeters = 100.0;
 
   final void Function(LatLng center, double lengthMeters) onDeadZone;
@@ -29,6 +29,10 @@ class DeadZoneTracker {
   Timer? _timer;
   bool _checking = false;
   bool _paused = false;
+  // True once the server answered at least once in this recording. A dead zone
+  // only counts after that: if the phone was offline from the very start, the
+  // person simply turned mobile data off, there is no signal problem to report.
+  bool _hadSuccess = false;
   LatLng? _lastPos;
   LatLng? _firstFailPos;
   int _fails = 0;
@@ -81,6 +85,7 @@ class DeadZoneTracker {
       final ok = await _reachable();
       final pos = _lastPos;
       if (ok) {
+        _hadSuccess = true;
         if (_zoneStart != null && pos != null && _zoneMeters >= minLengthMeters) {
           _zonePoints.add(pos);
           onDeadZone(_center(), _zoneMeters);
@@ -94,7 +99,7 @@ class DeadZoneTracker {
       } else {
         _fails++;
         _firstFailPos ??= pos;
-        if (_fails >= failsToStart && _zoneStart == null && _firstFailPos != null) {
+        if (_fails >= failsToStart && _hadSuccess && _zoneStart == null && _firstFailPos != null) {
           _zoneStart = _firstFailPos;
           _zoneLast = pos;
           _zonePoints

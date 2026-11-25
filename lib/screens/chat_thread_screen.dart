@@ -26,6 +26,9 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
   StreamSubscription<List<ChatMessage>>? _sub;
+  StreamSubscription<List<ChatReaction>>? _reactSub;
+  // message id -> reactions on it
+  Map<String, List<ChatReaction>> _reactions = {};
 
   List<ChatMessage> _messages = [];
   bool _isLoading = true;
@@ -54,6 +57,7 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
       });
     }
     _load();
+    _loadReactions();
     _checkBlockStatus();
     _typingChannel = ChatService.openTypingChannel(widget.conversationId, (userId) {
       if (userId != widget.otherUserId || !mounted) return;
@@ -84,7 +88,89 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
     _controller.dispose();
     _scrollController.dispose();
     _sub?.cancel();
+    _reactSub?.cancel();
     super.dispose();
+  }
+
+  Map<String, List<ChatReaction>> _group(List<ChatReaction> all) {
+    final map = <String, List<ChatReaction>>{};
+    for (final r in all) {
+      map.putIfAbsent(r.messageId, () => []).add(r);
+    }
+    return map;
+  }
+
+  Future<void> _loadReactions() async {
+    final initial = await ChatService.fetchReactions(widget.conversationId);
+    if (!mounted) return;
+    setState(() => _reactions = _group(initial));
+    _reactSub = ChatService.streamReactions(widget.conversationId).listen((all) {
+      if (mounted) setState(() => _reactions = _group(all));
+    }, onError: (_) {});
+  }
+
+  /// Show my reaction change at once, without waiting for the server.
+  void _applyLocalReaction(String messageId, String? emoji) {
+    final me = Supabase.instance.client.auth.currentUser?.id ?? '';
+    final list = List<ChatReaction>.from(_reactions[messageId] ?? const <ChatReaction>[])..removeWhere((r) => r.userId == me);
+    if (emoji != null) list.add(ChatReaction(messageId: messageId, userId: me, emoji: emoji));
+    setState(() => _reactions = {..._reactions, messageId: list});
+  }
+
+  static const _emojis = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+  Future<void> _pickReaction(ChatMessage m) async {
+    final me = Supabase.instance.client.auth.currentUser?.id;
+    String? mine;
+    for (final r in _reactions[m.id] ?? const <ChatReaction>[]) {
+      if (r.userId == me) mine = r.emoji;
+    }
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: const Color(0xff141414),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final e in _emojis)
+                GestureDetector(
+                  onTap: () => Navigator.of(ctx).pop(e),
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(shape: BoxShape.circle, color: e == mine ? Colors.blue.withValues(alpha: .35) : Colors.transparent),
+                    child: Text(e, style: const TextStyle(fontSize: 30)),
+                  ),
+                ),
+            ],
+          ),
+              if (mine != null)
+                TextButton.icon(
+                  onPressed: () => Navigator.of(ctx).pop('remove'),
+                  icon: const Icon(Icons.close, size: 18, color: Colors.redAccent),
+                  label: const Text('Remove my reaction', style: TextStyle(color: Colors.redAccent)),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (picked == null) return;
+    final newEmoji = (picked == 'remove' || picked == mine) ? null : picked;
+    _applyLocalReaction(m.id, newEmoji);
+    final ok = await ChatService.setReaction(m.id, newEmoji);
+    if (!ok && mounted) {
+      final real = await ChatService.fetchReactions(widget.conversationId);
+      if (!mounted) return;
+      setState(() => _reactions = _group(real));
+      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(const SnackBar(content: Text("Couldn't react, Please try again.")));
+    }
   }
 
   Future<void> _checkBlockStatus() async {
@@ -322,7 +408,14 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
                                 key: ValueKey(m.id),
                                 animate: _animateIds.contains(m.id),
                                 fromRight: m.isMine,
-                                child: Opacity(opacity: isPending ? 0.7 : 1, child: _MessageBubble(message: m)),
+                                child: Opacity(
+                                  opacity: isPending ? 0.7 : 1,
+                                  child: _MessageBubble(
+                                    message: m,
+                                    reactions: _reactions[m.id] ?? const [],
+                                    onReact: isPending ? null : () => _pickReaction(m),
+                                  ),
+                                ),
                               );
                             }
                             return const _PopIn(animate: true, fromRight: false, child: _TypingBubble());
@@ -384,14 +477,18 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
 
 class _MessageBubble extends StatelessWidget {
   final ChatMessage message;
-  const _MessageBubble({required this.message});
+  final List<ChatReaction> reactions;
+  final VoidCallback? onReact;
+  const _MessageBubble({required this.message, this.reactions = const [], this.onReact});
 
   @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: message.isMine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
+    final counts = <String, int>{};
+    for (final r in reactions) {
+      counts[r.emoji] = (counts[r.emoji] ?? 0) + 1;
+    }
+    final bubble = Container(
+        margin: EdgeInsets.only(bottom: counts.isEmpty ? 8 : 2),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.72),
         decoration: BoxDecoration(
@@ -412,6 +509,28 @@ class _MessageBubble extends StatelessWidget {
             Text(DateFormat.jm().format(message.createdAt), style: TextStyle(color: Colors.white.withValues(alpha: .6), fontSize: 10)),
           ],
         ),
+      );
+    return Align(
+      alignment: message.isMine ? Alignment.centerRight : Alignment.centerLeft,
+      child: Column(
+        crossAxisAlignment: message.isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GestureDetector(onLongPress: onReact, child: bubble),
+          if (counts.isNotEmpty)
+            GestureDetector(
+              onTap: onReact,
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(color: const Color(0xff222222), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white12)),
+                child: Text(
+                  counts.entries.map((e) => e.value > 1 ? '${e.key} ${e.value}' : e.key).join('  '),
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
