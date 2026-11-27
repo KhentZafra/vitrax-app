@@ -1,7 +1,7 @@
 {
   "version": "1.0.4",
-  "build": 5,
+  "build": 6,
   "minBuild": 5,
   "apk": "https://github.com/KhentZafra/vitrax-app/releases/latest/download/vitrax.apk",
-  "notes": "Fixed: false \"No signal\" hazards no longer appear when your connection is simply off or flickers briefly. Fixed: tapping a feed photo now opens it large and centered, with pinch to zoom. New: react to chat messages with emojis and tap yours to remove it. Challenge winners are now decided reliably by the server."
+  "notes": "Fixed: false \"No signal\" hazards no longer appear when your connection is simply off or flickers briefly. Fixed: tapping a feed photo now opens it large and centered, with pinch to zoom. New: react to chat messages with emojis and tap yours to remove it. Challenge winners are now decided reliably by the server. Smoother route lines on your recordings and shared routes."
 }
